@@ -2,7 +2,7 @@
 name = "postgres-mcp"
 version = "0.1.0"
 description = "MCP server for PostgreSQL with query, schema, and table management tools"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Javier <javiecija96@gmail.com>"]
 packages = [{include = "postgres_mcp"}]
 
 [tool.poetry.dependencies]
