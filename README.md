@@ -123,12 +123,12 @@ To use this MCP server with Cursor IDE:
       "command": "/Users/javieraguilarmartin1/Library/Caches/pypoetry/virtualenvs/postgres-mcp-1M6poMko-py3.12/bin/python",
       "args": ["-m", "postgres_mcp.server"],
       "env": {
-        "POSTGRES_HOST": "localhost",
-        "POSTGRES_PORT": "5432",
-        "POSTGRES_USER": "postgres",
-        "POSTGRES_PASSWORD": "postgres",
-        "POSTGRES_DB": "light_wash",
-        "PYTHONPATH": "/Users/javieraguilarmartin1/Documents/repos/postgres_mcp"
+        "POSTGRES_HOST": "your_host",
+        "POSTGRES_PORT": "your_port",
+        "POSTGRES_USER": "your_user",
+        "POSTGRES_PASSWORD": "your_password",
+        "POSTGRES_DB": "your_db",
+        "PYTHONPATH": "/paht/to/postgres_mcp"
       }
     }
   }
