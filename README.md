@@ -242,9 +242,17 @@ Get detailed information about a table's structure.
 
 ### Running Tests
 
+**Diagnostic Tool** (for setup verification and troubleshooting):
+```bash
+python test_connectivity.py
+```
+*Comprehensive connectivity check with user-friendly output and troubleshooting guidance.*
+
+**Unit Tests** (for development and CI/CD):
 ```bash
 poetry run pytest
 ```
+*Automated test suite for development workflows and code quality assurance.*
 
 ### Code Formatting
 
