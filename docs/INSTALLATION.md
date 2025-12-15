@@ -13,20 +13,20 @@ Complete guide for installing and configuring the PostgreSQL MCP server with Cla
 ### Option A: Using pipx (Recommended)
 
 ```bash
-pipx install mcp-server-postgres
+pipx install postgres-mcp
 ```
 
 ### Option B: Using pip
 
 ```bash
-pip install mcp-server-postgres
+pip install postgres-mcp
 ```
 
 ### Option C: From Source
 
 ```bash
-git clone https://github.com/your-username/mcp-server-postgres.git
-cd mcp-server-postgres
+git clone https://github.com/your-username/postgres-mcp.git
+cd postgres-mcp
 uv sync
 ```
 
@@ -88,7 +88,7 @@ claude mcp add postgres -s user \
   -e POSTGRES_USER=mcp_reader \
   -e POSTGRES_PASSWORD=your_password \
   -e POSTGRES_DB=your_database \
-  -- mcp-server-postgres
+  -- postgres-mcp
 ```
 
 ### Option B: Manual Configuration
@@ -100,7 +100,7 @@ Edit `~/.claude.json` and add to the `mcpServers` section:
   "mcpServers": {
     "postgres": {
       "type": "stdio",
-      "command": "mcp-server-postgres",
+      "command": "postgres-mcp",
       "args": [],
       "env": {
         "POSTGRES_HOST": "localhost",
@@ -122,7 +122,7 @@ Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 {
   "mcpServers": {
     "postgres": {
-      "command": "mcp-server-postgres",
+      "command": "postgres-mcp",
       "env": {
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432",
@@ -270,7 +270,7 @@ claude mcp add postgres -s user \
   -e POSTGRES_USER=postgres \
   -e POSTGRES_PASSWORD=devpass \
   -e POSTGRES_DB=postgres \
-  -- mcp-server-postgres
+  -- postgres-mcp
 ```
 
 ## Troubleshooting
@@ -304,10 +304,10 @@ claude mcp add postgres -s user \
 claude mcp get postgres
 
 # Verify installation
-which mcp-server-postgres
+which postgres-mcp
 
 # Test server directly (should wait for MCP messages)
-mcp-server-postgres
+postgres-mcp
 # Press Ctrl+C to exit
 ```
 
@@ -323,10 +323,10 @@ mcp-server-postgres
 
 ```bash
 # Update to latest version
-pipx upgrade mcp-server-postgres
+pipx upgrade postgres-mcp
 
 # Or reinstall
-pipx uninstall mcp-server-postgres && pipx install mcp-server-postgres
+pipx uninstall postgres-mcp && pipx install postgres-mcp
 ```
 
 ## Uninstalling
@@ -336,11 +336,11 @@ pipx uninstall mcp-server-postgres && pipx install mcp-server-postgres
 claude mcp remove postgres -s user
 
 # Uninstall package
-pipx uninstall mcp-server-postgres
+pipx uninstall postgres-mcp
 ```
 
 ## Support
 
-- GitHub Issues: https://github.com/your-username/mcp-server-postgres/issues
-- PyPI: https://pypi.org/project/mcp-server-postgres/
+- GitHub Issues: https://github.com/your-username/postgres-mcp/issues
+- PyPI: https://pypi.org/project/postgres-mcp/
 
