@@ -1,12 +1,23 @@
 version: '3.8'
 
 services:
-  postgres-mcp:
-    build: .
-    network_mode: host
-    env_file:
-     - .env
-    stdin_open: true
-    tty: true
+  postgres:
+    image: postgres:16
+    container_name: postgresql-mcp-test
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: testdb
+    ports:
+      - "5433:5432"
     volumes:
-      - .:/app 
+      - ./scripts/init_sample_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

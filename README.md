@@ -219,7 +219,15 @@ uv sync
 
 ```bash
 # Unit tests (no database required)
-uv run pytest tests/test_security.py tests/test_settings.py tests/test_models.py -v
+uv run pytest tests/test_security.py tests/test_settings.py tests/test_models.py tests/test_utils.py -v
+
+# Integration tests (requires PostgreSQL)
+docker-compose up -d
+export POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=testuser POSTGRES_PASSWORD=testpass POSTGRES_DB=testdb
+uv run pytest tests/test_integration.py -v
+
+# All tests
+docker-compose up -d && uv run pytest -v
 
 # All tests (requires PostgreSQL)
 uv run pytest -v --cov=postgres_mcp

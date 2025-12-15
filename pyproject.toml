@@ -41,12 +41,14 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
     "pytest-mock>=3.12",
+    "pytest-asyncio>=0.23",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-v"
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["hatchling"]
