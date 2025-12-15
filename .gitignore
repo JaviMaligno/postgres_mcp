@@ -1,3 +1,42 @@
+# Distribution
 dist/
-.env
+build/
+*.egg-info/
+
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+
+# uv
+uv.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+.cursor/mcp.json

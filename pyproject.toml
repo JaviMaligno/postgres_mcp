@@ -1,26 +1,57 @@
-[tool.poetry]
-name = "postgres-mcp"
-version = "0.1.0"
-description = "MCP server for PostgreSQL with query, schema, and table management tools"
-authors = ["Javier <javiecija96@gmail.com>"]
-packages = [{include = "postgres_mcp"}]
+[project]
+name = "mcp-server-postgres"
+version = "0.2.0"
+description = "MCP server for PostgreSQL database operations - query, explore schemas, and analyze tables"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Javier Aguilar", email = "javiecija96@gmail.com"}]
+keywords = ["mcp", "postgresql", "postgres", "database", "claude", "ai", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "psycopg2-binary>=2.9.9",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-mcp = "^1.0.0"
-psycopg2-binary = "^2.9.9"
-python-dotenv = "^1.0.0"
+[project.urls]
+Homepage = "https://github.com/JaviMaligno/postgres_mcp"
+Documentation = "https://github.com/JaviMaligno/postgres_mcp#readme"
+Repository = "https://github.com/JaviMaligno/postgres_mcp"
+"Bug Tracker" = "https://github.com/JaviMaligno/postgres_mcp/issues"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.4.0"
-black = "^23.0.0"
-flake8 = "^6.0.0"
-mypy = "^1.5.0"
-pytest-asyncio = ">=0.20,<1.0"
+[project.scripts]
+mcp-server-postgres = "postgres_mcp.server:main"
+postgres-mcp = "postgres_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "pytest-mock>=3.12",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry.scripts]
-postgres-mcp = "postgres_mcp.server:main" 
+[tool.hatch.build.targets.wheel]
+packages = ["postgres_mcp"]

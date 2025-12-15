@@ -7,7 +7,17 @@ Pytest configuration and shared fixtures for postgres_mcp tests
 import os
 import pytest
 from unittest.mock import patch
-from postgres_mcp.server import PostgresMCPServer
+
+from postgres_mcp.settings import Settings, clear_settings_cache
+from postgres_mcp.postgres_client import PostgresClient
+
+
+@pytest.fixture(autouse=True)
+def reset_settings():
+    """Reset settings cache before each test."""
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture
@@ -33,15 +43,47 @@ def mock_env():
 
 
 @pytest.fixture
-def postgres_server(mock_env):
-    """Fixture that provides a PostgresMCPServer instance with mocked environment"""
-    return PostgresMCPServer()
+def test_settings(mock_env) -> Settings:
+    """Create a test Settings instance."""
+    return Settings(
+        postgres_host="localhost",
+        postgres_port=5432,
+        postgres_user="testuser",
+        postgres_password="testpass",
+        postgres_db="testdb",
+    )
 
 
 @pytest.fixture
-def real_postgres_server():
+def write_enabled_settings(mock_env) -> Settings:
+    """Create Settings with write operations enabled."""
+    return Settings(
+        postgres_host="localhost",
+        postgres_port=5432,
+        postgres_user="testuser",
+        postgres_password="testpass",
+        postgres_db="testdb",
+        allow_write_operations=True,
+    )
+
+
+@pytest.fixture
+def postgres_client(mock_env):
+    """Fixture that provides a PostgresClient instance with mocked environment"""
+    settings = Settings(
+        postgres_host=mock_env['POSTGRES_HOST'],
+        postgres_port=int(mock_env['POSTGRES_PORT']),
+        postgres_user=mock_env['POSTGRES_USER'],
+        postgres_password=mock_env['POSTGRES_PASSWORD'],
+        postgres_db=mock_env['POSTGRES_DB'],
+    )
+    return PostgresClient(settings)
+
+
+@pytest.fixture
+def real_postgres_client():
     """
-    Fixture that provides a PostgresMCPServer instance with real environment variables.
+    Fixture that provides a PostgresClient instance with real environment variables.
     Tests using this fixture will be skipped if no real database configuration is available.
     """
     # Check if we have real database configuration
@@ -50,7 +92,7 @@ def real_postgres_server():
     if not all(os.getenv(var) for var in required_env_vars):
         pytest.skip("Real database configuration not available")
     
-    return PostgresMCPServer()
+    return PostgresClient()
 
 
 def pytest_configure(config):
@@ -91,13 +133,11 @@ def check_database_connectivity():
     Returns True if database is accessible, False otherwise.
     """
     try:
-        server = PostgresMCPServer()
-        conn = server.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1;")
-        result = cursor.fetchone()
-        conn.close()
-        return result is not None
+        client = PostgresClient()
+        with client.get_cursor() as cursor:
+            cursor.execute("SELECT 1;")
+            result = cursor.fetchone()
+            return result is not None
     except Exception:
         return False
 
@@ -186,4 +226,3 @@ def assert_textcontent_valid(content_list):
         assert hasattr(content, 'text'), "Content must have text attribute"
         assert content.type == 'text', "Content type must be 'text'"
         assert isinstance(content.text, str), "Content text must be a string"
-
