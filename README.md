@@ -1,7 +1,7 @@
 # PostgreSQL MCP Server
 
 [![CI](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml)
-[![PyPI version](https://badge.fury.io/py/postgres-mcp.svg)](https://pypi.org/project/postgres-mcp/)
+[![PyPI version](https://badge.fury.io/py/postgresql-mcp.svg)](https://pypi.org/project/postgresql-mcp/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -21,7 +21,7 @@ MCP server for PostgreSQL database operations. Works with Claude Code, Claude De
 
 ```bash
 # Install
-pipx install postgres-mcp
+pipx install postgresql-mcp
 
 # Configure Claude Code
 claude mcp add postgres -s user \
@@ -29,7 +29,7 @@ claude mcp add postgres -s user \
   -e POSTGRES_USER=your_user \
   -e POSTGRES_PASSWORD=your_password \
   -e POSTGRES_DB=your_database \
-  -- postgres-mcp
+  -- postgresql-mcp
 ```
 
 **[Full Installation Guide](docs/INSTALLATION.md)** - Includes database permissions setup, remote connections, and troubleshooting.
@@ -137,9 +137,9 @@ Write operations (INSERT, UPDATE, DELETE) are blocked unless explicitly enabled 
 ### From PyPI (Recommended)
 
 ```bash
-pipx install postgres-mcp
+pipx install postgresql-mcp
 # or
-pip install postgres-mcp
+pip install postgresql-mcp
 ```
 
 ### From Source
@@ -161,7 +161,7 @@ claude mcp add postgres -s user \
   -e POSTGRES_USER=your_user \
   -e POSTGRES_PASSWORD=your_password \
   -e POSTGRES_DB=your_database \
-  -- postgres-mcp
+  -- postgresql-mcp
 ```
 
 ### Cursor IDE
@@ -172,7 +172,7 @@ Add to `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "postgres": {
-      "command": "postgres-mcp",
+      "command": "postgresql-mcp",
       "env": {
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432",
@@ -273,12 +273,12 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO your_user;
 claude mcp get postgres
 
 # Test server directly
-postgres-mcp  # Should wait for MCP messages
+postgresql-mcp  # Should wait for MCP messages
 ```
 
 ## Links
 
-- [PyPI Package](https://pypi.org/project/postgres-mcp/)
+- [PyPI Package](https://pypi.org/project/postgresql-mcp/)
 - [Installation Guide](docs/INSTALLATION.md)
 - [GitHub Repository](https://github.com/JaviMaligno/postgres_mcp)
 

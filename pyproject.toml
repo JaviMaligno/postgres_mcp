@@ -1,5 +1,5 @@
 [project]
-name = "postgres-mcp"
+name = "postgresql-mcp"
 version = "0.2.0"
 description = "MCP server for PostgreSQL database operations - query, explore schemas, and analyze tables"
 readme = "README.md"
@@ -34,7 +34,7 @@ Repository = "https://github.com/JaviMaligno/postgres_mcp"
 "Bug Tracker" = "https://github.com/JaviMaligno/postgres_mcp/issues"
 
 [project.scripts]
-postgres-mcp = "postgres_mcp.server:main"
+postgresql-mcp = "postgres_mcp.server:main"
 
 [dependency-groups]
 dev = [
