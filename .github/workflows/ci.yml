@@ -40,6 +40,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
       
+      - name: Load sample data into PostgreSQL
+        env:
+          PGPASSWORD: test
+        run: psql -h localhost -U test -d test -f scripts/init_sample_db.sql
+      
       - name: Run tests with coverage
         env:
           POSTGRES_HOST: localhost
