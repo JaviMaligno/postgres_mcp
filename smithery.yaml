@@ -1,0 +1,69 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+# This file configures how the MCP server is deployed and run on Smithery
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP server
+    type: object
+    properties:
+      POSTGRES_HOST:
+        type: string
+        default: localhost
+        description: PostgreSQL database host
+      POSTGRES_PORT:
+        type: number
+        default: 5432
+        description: PostgreSQL database port
+      POSTGRES_USER:
+        type: string
+        description: Database user
+      POSTGRES_PASSWORD:
+        type: string
+        description: Database password
+      POSTGRES_DB:
+        type: string
+        description: Database name
+      POSTGRES_SSLMODE:
+        type: string
+        enum:
+          - disable
+          - allow
+          - prefer
+          - require
+          - verify-ca
+          - verify-full
+        default: prefer
+        description: SSL mode for connection
+      ALLOW_WRITE_OPERATIONS:
+        type: boolean
+        default: false
+        description: Enable INSERT/UPDATE/DELETE operations
+      QUERY_TIMEOUT:
+        type: number
+        default: 30
+        description: Query timeout in seconds
+      MAX_ROWS:
+        type: number
+        default: 1000
+        description: Maximum rows returned per query
+    required:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB
+  commandFunction: |
+    (config) => ({
+      command: "postgresql-mcp",
+      env: {
+        POSTGRES_HOST: config.POSTGRES_HOST || "localhost",
+        POSTGRES_PORT: config.POSTGRES_PORT ? String(config.POSTGRES_PORT) : "5432",
+        POSTGRES_USER: config.POSTGRES_USER,
+        POSTGRES_PASSWORD: config.POSTGRES_PASSWORD,
+        POSTGRES_DB: config.POSTGRES_DB,
+        POSTGRES_SSLMODE: config.POSTGRES_SSLMODE || "prefer",
+        ALLOW_WRITE_OPERATIONS: config.ALLOW_WRITE_OPERATIONS ? "true" : "false",
+        QUERY_TIMEOUT: config.QUERY_TIMEOUT ? String(config.QUERY_TIMEOUT) : "30",
+        MAX_ROWS: config.MAX_ROWS ? String(config.MAX_ROWS) : "1000"
+      }
+    })
+
