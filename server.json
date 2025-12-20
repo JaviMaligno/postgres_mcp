@@ -1,0 +1,66 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.JaviMaligno/postgresql",
+  "title": "PostgreSQL MCP Server",
+  "description": "MCP server for PostgreSQL database operations. Provides 14 tools for querying databases, exploring schemas, analyzing tables, with security-first design including SQL injection prevention and read-only by default.",
+  "repository": {
+    "url": "https://github.com/JaviMaligno/postgres_mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "postgresql-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "POSTGRES_HOST",
+          "description": "PostgreSQL database host",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "POSTGRES_PORT",
+          "description": "PostgreSQL database port (default: 5432)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "POSTGRES_USER",
+          "description": "Database user",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Database password",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "POSTGRES_DB",
+          "description": "Database name",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ALLOW_WRITE_OPERATIONS",
+          "description": "Enable INSERT/UPDATE/DELETE operations (default: false)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
+

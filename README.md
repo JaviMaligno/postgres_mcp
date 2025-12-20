@@ -1,5 +1,7 @@
 # PostgreSQL MCP Server
 
+<!-- mcp-name: io.github.JaviMaligno/postgresql -->
+
 [![CI](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/postgresql-mcp.svg)](https://pypi.org/project/postgresql-mcp/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
