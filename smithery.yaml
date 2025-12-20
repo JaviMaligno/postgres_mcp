@@ -1,10 +1,13 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 # This file configures how the MCP server is deployed and run on Smithery
 
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .
+
 startCommand:
   type: stdio
   configSchema:
-    # JSON Schema defining the configuration options for the MCP server
     type: object
     properties:
       POSTGRES_HOST:
@@ -66,4 +69,3 @@ startCommand:
         MAX_ROWS: config.MAX_ROWS ? String(config.MAX_ROWS) : "1000"
       }
     })
-
