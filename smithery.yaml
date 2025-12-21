@@ -1,9 +1,10 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 # This file configures how the MCP server is deployed and run on Smithery
+# NOTE: This configuration now points to the TypeScript version
 
 build:
-  dockerfile: Dockerfile
-  dockerBuildPath: .
+  dockerfile: typescript/Dockerfile
+  dockerBuildPath: typescript
 
 startCommand:
   type: stdio
@@ -56,7 +57,8 @@ startCommand:
       - POSTGRES_DB
   commandFunction: |
     (config) => ({
-      command: "postgresql-mcp",
+      command: "node",
+      args: ["dist/index.js"],
       env: {
         POSTGRES_HOST: config.POSTGRES_HOST || "localhost",
         POSTGRES_PORT: config.POSTGRES_PORT ? String(config.POSTGRES_PORT) : "5432",

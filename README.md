@@ -4,10 +4,21 @@
 
 [![CI](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/postgresql-mcp.svg)](https://pypi.org/project/postgresql-mcp/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![npm version](https://badge.fury.io/js/postgresql-mcp.svg)](https://www.npmjs.com/package/postgresql-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MCP server for PostgreSQL database operations. Works with Claude Code, Claude Desktop, and any MCP-compatible client.
+MCP server for PostgreSQL database operations. Works with Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
+
+## Language Versions
+
+This repository contains both **TypeScript** and **Python** implementations:
+
+| Version | Directory | Status | Installation |
+|---------|-----------|--------|--------------|
+| **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `npm install -g postgresql-mcp` |
+| Python | `/python` | ✅ Stable | `pipx install postgresql-mcp` |
+
+> **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
 
 ## Features
 
@@ -20,6 +31,18 @@ MCP server for PostgreSQL database operations. Works with Claude Code, Claude De
 - **MCP Resources**: Browsable database structure as markdown
 
 ## Quick Start
+
+### TypeScript (Recommended for Smithery)
+
+```bash
+# Install globally
+npm install -g postgresql-mcp
+
+# Or run directly with npx
+npx postgresql-mcp
+```
+
+### Python
 
 ```bash
 # Install
@@ -35,6 +58,64 @@ claude mcp add postgres -s user \
 ```
 
 **[Full Installation Guide](docs/INSTALLATION.md)** - Includes database permissions setup, remote connections, and troubleshooting.
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `POSTGRES_HOST` | | localhost | Database host |
+| `POSTGRES_PORT` | | 5432 | Database port |
+| `POSTGRES_USER` | ✅ | | Database user |
+| `POSTGRES_PASSWORD` | ✅ | | Database password |
+| `POSTGRES_DB` | ✅ | | Database name |
+| `POSTGRES_SSLMODE` | | prefer | SSL mode |
+| `ALLOW_WRITE_OPERATIONS` | | false | Enable INSERT/UPDATE/DELETE |
+| `QUERY_TIMEOUT` | | 30 | Query timeout (seconds) |
+| `MAX_ROWS` | | 1000 | Maximum rows returned |
+
+### Claude Code CLI
+
+```bash
+# TypeScript version
+claude mcp add postgres -s user \
+  -e POSTGRES_HOST=localhost \
+  -e POSTGRES_USER=your_user \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=your_database \
+  -- npx postgresql-mcp
+
+# Python version
+claude mcp add postgres -s user \
+  -e POSTGRES_HOST=localhost \
+  -e POSTGRES_USER=your_user \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=your_database \
+  -- postgresql-mcp
+```
+
+### Cursor IDE
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["postgresql-mcp"],
+      "env": {
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "your_user",
+        "POSTGRES_PASSWORD": "your_password",
+        "POSTGRES_DB": "your_database"
+      }
+    }
+  }
+}
+```
 
 ## Available Tools (14 total)
 
@@ -127,133 +208,42 @@ Write operations (INSERT, UPDATE, DELETE) are blocked unless explicitly enabled 
 - SQL comments are blocked
 
 ### Credential Protection
-- Passwords stored using Pydantic's `SecretStr`
+- Passwords stored using secure string types
 - Credentials never appear in logs or error messages
 
 ### Query Limits
 - Results limited by `MAX_ROWS` (default: 1000)
 - Query timeout configurable via `QUERY_TIMEOUT`
 
-## Installation Options
-
-### From PyPI (Recommended)
-
-```bash
-pipx install postgresql-mcp
-# or
-pip install postgresql-mcp
-```
-
-### From Source
-
-```bash
-git clone https://github.com/JaviMaligno/postgres_mcp.git
-cd postgres_mcp
-uv sync
-```
-
-## Configuration
-
-### Claude Code CLI (Recommended)
-
-```bash
-claude mcp add postgres -s user \
-  -e POSTGRES_HOST=localhost \
-  -e POSTGRES_PORT=5432 \
-  -e POSTGRES_USER=your_user \
-  -e POSTGRES_PASSWORD=your_password \
-  -e POSTGRES_DB=your_database \
-  -- postgresql-mcp
-```
-
-### Cursor IDE
-
-Add to `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "postgres": {
-      "command": "postgresql-mcp",
-      "env": {
-        "POSTGRES_HOST": "localhost",
-        "POSTGRES_PORT": "5432",
-        "POSTGRES_USER": "your_user",
-        "POSTGRES_PASSWORD": "your_password",
-        "POSTGRES_DB": "your_database"
-      }
-    }
-  }
-}
-```
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `POSTGRES_HOST` | Yes | localhost | Database host |
-| `POSTGRES_PORT` | No | 5432 | Database port |
-| `POSTGRES_USER` | Yes | postgres | Database user |
-| `POSTGRES_PASSWORD` | Yes | - | Database password |
-| `POSTGRES_DB` | Yes | postgres | Database name |
-| `POSTGRES_SSLMODE` | No | prefer | SSL mode |
-| `ALLOW_WRITE_OPERATIONS` | No | false | Enable write operations |
-| `QUERY_TIMEOUT` | No | 30 | Query timeout (seconds) |
-| `MAX_ROWS` | No | 1000 | Maximum rows returned |
-
 ## Development
 
-### Requirements
-
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) for dependency management
-- PostgreSQL for integration tests
-
-### Setup
+### TypeScript
 
 ```bash
-git clone https://github.com/JaviMaligno/postgres_mcp.git
-cd postgres_mcp
+cd typescript
+npm install
+npm run build
+npm run dev  # Watch mode
+```
+
+### Python
+
+```bash
+cd python
 uv sync
+uv run pytest -v --cov=postgres_mcp
 ```
 
 ### Running Tests
 
 ```bash
-# Unit tests (no database required)
-uv run pytest tests/test_security.py tests/test_settings.py tests/test_models.py tests/test_utils.py -v
+# Python unit tests (no database required)
+cd python
+uv run pytest tests/test_security.py tests/test_settings.py -v
 
 # Integration tests (requires PostgreSQL)
 docker-compose up -d
-export POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=testuser POSTGRES_PASSWORD=testpass POSTGRES_DB=testdb
 uv run pytest tests/test_integration.py -v
-
-# All tests
-docker-compose up -d && uv run pytest -v
-
-# All tests (requires PostgreSQL)
-uv run pytest -v --cov=postgres_mcp
-```
-
-### CI/CD Pipeline
-
-The project uses GitHub Actions:
-
-- **Every push to main**: Runs tests on Python 3.10, 3.11, 3.12
-- **Pull requests**: Full test suite
-- **Tags (`v*`)**: Tests, builds, and publishes to PyPI
-
-To release a new version:
-
-```bash
-# 1. Update version in postgres_mcp/__version__.py
-# 2. Commit and push
-git add -A && git commit -m "release: v0.2.0"
-git push origin main
-
-# 3. Create and push tag (triggers PyPI publish)
-git tag v0.2.0
-git push origin v0.2.0
 ```
 
 ## Troubleshooting
@@ -289,6 +279,7 @@ postgresql-mcp  # Should wait for MCP messages
 ## Links
 
 - [PyPI Package](https://pypi.org/project/postgresql-mcp/)
+- [npm Package](https://www.npmjs.com/package/postgresql-mcp)
 - [Installation Guide](docs/INSTALLATION.md)
 - [GitHub Repository](https://github.com/JaviMaligno/postgres_mcp)
 

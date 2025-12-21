@@ -1,5 +1,4 @@
-# Docker Compose for PostgreSQL MCP Testing
-# Provides a PostgreSQL database with sample data for testing both Python and TypeScript versions
+version: '3.8'
 
 services:
   postgres:
@@ -12,7 +11,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - ./python/scripts/init_sample_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./scripts/init_sample_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
@@ -22,4 +21,3 @@ services:
 
 volumes:
   postgres_data:
-

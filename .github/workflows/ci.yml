@@ -7,8 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  test-python:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -58,11 +61,53 @@ jobs:
         if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@v4
         with:
-          files: ./coverage.xml
+          files: python/coverage.xml
           fail_ci_if_error: false
+
+  test-typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build
+      - name: Load sample data
+        env:
+          PGPASSWORD: test
+        run: psql -h localhost -U test -d test -f ../python/scripts/init_sample_db.sql
+      - run: npm test
+        continue-on-error: true
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
 
   lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
       
@@ -83,9 +128,12 @@ jobs:
         run: uv run ruff check .
         continue-on-error: true
 
-  build:
+  build-python:
     runs-on: ubuntu-latest
-    needs: test
+    needs: test-python
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
       
@@ -99,5 +147,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist/
-
+          path: python/dist/
