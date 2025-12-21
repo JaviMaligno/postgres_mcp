@@ -1,15 +1,6 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
-# ============================================================================
-# NOTE: This repository contains both Python and TypeScript versions.
-# 
-# For Smithery deployment, use the TypeScript version located at:
-#   typescript/smithery.yaml
-# 
-# When adding this server in Smithery, specify the path: typescript/
-# ============================================================================
-
-# This root configuration is for backwards compatibility with existing deployments
-# pointing to the Python version. New deployments should use typescript/smithery.yaml
+# This file configures how the MCP server is deployed and run on Smithery
+# TypeScript version - located in typescript/ directory
 
 startCommand:
   type: stdio
@@ -63,7 +54,7 @@ startCommand:
   commandFunction: |
     (config) => ({
       command: 'node',
-      args: ['typescript/dist/index.js'],
+      args: ['dist/index.js'],
       env: {
         POSTGRES_HOST: config.POSTGRES_HOST || "localhost",
         POSTGRES_PORT: config.POSTGRES_PORT ? String(config.POSTGRES_PORT) : "5432",
@@ -82,3 +73,4 @@ startCommand:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: password
     POSTGRES_DB: mydb
+
