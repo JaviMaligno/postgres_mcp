@@ -22,6 +22,9 @@ RUN npm prune --production
 # Set environment
 ENV NODE_ENV=production
 
-# Run the server
-CMD ["node", "dist/index.js"]
+# Expose port for HTTP mode
+EXPOSE 8080
+
+# Run the server in HTTP mode for Smithery
+CMD ["node", "dist/index.js", "--http", "--port", "8080"]
 

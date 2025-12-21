@@ -9,12 +9,15 @@
  *   # Run as stdio server (for Claude Desktop/Code)
  *   node dist/index.js
  * 
- *   # Or via npm script
- *   npm start
+ *   # Run as HTTP server (for Smithery)
+ *   node dist/index.js --http
+ *   node dist/index.js --http --port 8080
  */
 
+import { createServer as createHttpServer } from 'node:http';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -136,27 +139,104 @@ function createServer(): Server {
 }
 
 /**
- * Main entry point
+ * Run server in stdio mode (for Claude Desktop/Code)
  */
-async function main(): Promise<void> {
-  // Validate settings on startup
-  try {
-    getSettings();
-  } catch (error) {
-    console.error('Configuration error:', error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-
+async function runStdioServer(): Promise<void> {
   const server = createServer();
   const transport = new StdioServerTransport();
   
   await server.connect(transport);
   
-  console.error(`PostgreSQL MCP Server v${VERSION} started`);
+  console.error(`PostgreSQL MCP Server v${VERSION} started (stdio mode)`);
+}
+
+/**
+ * Run server in HTTP mode (for Smithery)
+ */
+async function runHttpServer(port: number): Promise<void> {
+  const server = createServer();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // Stateless mode
+  });
+  
+  await server.connect(transport);
+  
+  const httpServer = createHttpServer(async (req, res) => {
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, mcp-session-id',
+      });
+      res.end();
+      return;
+    }
+    
+    // Add CORS headers to all responses
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Handle MCP requests
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error('Error handling request:', error);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      }
+    }
+  });
+  
+  httpServer.listen(port, () => {
+    console.log(`PostgreSQL MCP Server v${VERSION} listening on http://0.0.0.0:${port} (HTTP mode)`);
+  });
+  
+  // Handle graceful shutdown
+  process.on('SIGINT', async () => {
+    console.log('\nShutting down...');
+    httpServer.close();
+    await transport.close();
+    process.exit(0);
+  });
+  
+  process.on('SIGTERM', async () => {
+    console.log('\nShutting down...');
+    httpServer.close();
+    await transport.close();
+    process.exit(0);
+  });
+}
+
+/**
+ * Main entry point
+ */
+async function main(): Promise<void> {
+  // Validate settings on startup (only fail in stdio mode without env vars)
+  const args = process.argv.slice(2);
+  const isHttpMode = args.includes('--http');
+  const portIndex = args.indexOf('--port');
+  const port = portIndex !== -1 ? parseInt(args[portIndex + 1], 10) : 8080;
+  
+  // In HTTP mode, settings validation happens per-request
+  // In stdio mode, validate immediately
+  if (!isHttpMode) {
+    try {
+      getSettings();
+    } catch (error) {
+      console.error('Configuration error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  }
+  
+  if (isHttpMode) {
+    await runHttpServer(port);
+  } else {
+    await runStdioServer();
+  }
 }
 
 main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);
 });
-
