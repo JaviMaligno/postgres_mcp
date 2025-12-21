@@ -3,7 +3,7 @@
 # NOTE: This configuration now points to the TypeScript version
 
 build:
-  dockerfile: typescript/Dockerfile
+  dockerfile: Dockerfile
   dockerBuildPath: typescript
 
 startCommand:
