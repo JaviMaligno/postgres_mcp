@@ -7,7 +7,7 @@ build:
   dockerBuildPath: typescript
 
 startCommand:
-  type: http
+  type: stdio
   configSchema:
     type: object
     properties:
@@ -55,9 +55,10 @@ startCommand:
       - POSTGRES_USER
       - POSTGRES_PASSWORD
       - POSTGRES_DB
-  configFunction: |
+  commandFunction: |
     (config) => ({
-      port: 8080,
+      command: 'node',
+      args: ['dist/index.js'],
       env: {
         POSTGRES_HOST: config.POSTGRES_HOST || "localhost",
         POSTGRES_PORT: config.POSTGRES_PORT ? String(config.POSTGRES_PORT) : "5432",
@@ -70,3 +71,9 @@ startCommand:
         MAX_ROWS: config.MAX_ROWS ? String(config.MAX_ROWS) : "1000"
       }
     })
+  exampleConfig:
+    POSTGRES_HOST: localhost
+    POSTGRES_PORT: 5432
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: password
+    POSTGRES_DB: mydb
