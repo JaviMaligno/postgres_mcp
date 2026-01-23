@@ -283,6 +283,10 @@ postgresql-mcp  # Should wait for MCP messages
 - [Installation Guide](docs/INSTALLATION.md)
 - [GitHub Repository](https://github.com/JaviMaligno/postgres_mcp)
 
+## Author
+
+Built by [Javier Aguilar](https://www.javieraguilar.ai) - AI Agent Architect specializing in multi-agent orchestration and MCP development.
+
 ## License
 
 MIT
