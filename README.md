@@ -30,6 +30,10 @@ This repository contains both **TypeScript** and **Python** implementations:
 - **MCP Prompts**: Guided workflows for exploration, query building, and documentation
 - **MCP Resources**: Browsable database structure as markdown
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/javimaligno-postgres-mcp).
+
 ## Quick Start
 
 ### TypeScript (Recommended for Smithery)
