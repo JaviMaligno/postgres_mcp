@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/javimaligno-postgres-mcp-badge.png)](https://mseep.ai/app/javimaligno-postgres-mcp)
+
 # PostgreSQL MCP Server
 
 <!-- mcp-name: io.github.JaviMaligno/postgresql -->
