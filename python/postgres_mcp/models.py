@@ -6,9 +6,9 @@ typed dictionaries for MCP tool responses.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 
 # ==================== SCHEMAS ====================
@@ -16,10 +16,10 @@ from pydantic import BaseModel, field_validator
 
 class SchemaSummary(BaseModel):
     """Schema info for list responses."""
-    
+
     name: str
     owner: Optional[str] = None
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "SchemaSummary":
         return cls(
@@ -33,13 +33,13 @@ class SchemaSummary(BaseModel):
 
 class TableSummary(BaseModel):
     """Table info for list responses."""
-    
+
     model_config = {"populate_by_name": True}
-    
+
     name: str
     type: str = "BASE TABLE"
     schema_name: str = "public"
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "TableSummary":
         return cls(
@@ -51,7 +51,7 @@ class TableSummary(BaseModel):
 
 class ColumnInfo(BaseModel):
     """Column information."""
-    
+
     name: str
     type: str
     nullable: bool = True
@@ -60,7 +60,7 @@ class ColumnInfo(BaseModel):
     max_length: Optional[int] = None
     precision: Optional[int] = None
     scale: Optional[int] = None
-    
+
     @classmethod
     def from_row(cls, row: dict, primary_keys: list[str] = None) -> "ColumnInfo":
         primary_keys = primary_keys or []
@@ -78,7 +78,7 @@ class ColumnInfo(BaseModel):
 
 class TableDetail(BaseModel):
     """Detailed table information."""
-    
+
     schema_name: str
     name: str
     columns: list[ColumnInfo] = []
@@ -93,7 +93,7 @@ class TableDetail(BaseModel):
 
 class IndexInfo(BaseModel):
     """Index information."""
-    
+
     name: str
     table_name: str
     columns: list[str] = []
@@ -101,7 +101,7 @@ class IndexInfo(BaseModel):
     is_primary: bool = False
     index_type: str = "btree"
     size_bytes: Optional[int] = None
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "IndexInfo":
         columns = row.get("columns", "")
@@ -123,7 +123,7 @@ class IndexInfo(BaseModel):
 
 class ConstraintInfo(BaseModel):
     """Constraint information."""
-    
+
     name: str
     type: str  # PRIMARY KEY, FOREIGN KEY, UNIQUE, CHECK
     table_name: str
@@ -131,7 +131,7 @@ class ConstraintInfo(BaseModel):
     definition: Optional[str] = None
     references_table: Optional[str] = None
     references_columns: list[str] = []
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "ConstraintInfo":
         columns = row.get("columns", [])
@@ -156,10 +156,10 @@ class ConstraintInfo(BaseModel):
 
 class ViewSummary(BaseModel):
     """View info for list responses."""
-    
+
     name: str
     schema_name: str = "public"
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "ViewSummary":
         return cls(
@@ -170,7 +170,7 @@ class ViewSummary(BaseModel):
 
 class ViewDetail(BaseModel):
     """Detailed view information."""
-    
+
     name: str
     schema_name: str = "public"
     definition: str = ""
@@ -182,13 +182,13 @@ class ViewDetail(BaseModel):
 
 class FunctionSummary(BaseModel):
     """Function/procedure info."""
-    
+
     name: str
     schema_name: str = "public"
     return_type: Optional[str] = None
     argument_types: str = ""
     func_type: str = "function"  # function, procedure, aggregate
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "FunctionSummary":
         return cls(
@@ -205,7 +205,7 @@ class FunctionSummary(BaseModel):
 
 class TableStats(BaseModel):
     """Table statistics."""
-    
+
     schema_name: str
     table_name: str
     row_count: Optional[int] = None
@@ -216,7 +216,7 @@ class TableStats(BaseModel):
     dead_tuples: Optional[int] = None
     last_vacuum: Optional[str] = None
     last_analyze: Optional[str] = None
-    
+
     @classmethod
     def from_row(cls, row: dict) -> "TableStats":
         return cls(
@@ -229,7 +229,9 @@ class TableStats(BaseModel):
             toast_size=row.get("toast_size"),
             dead_tuples=row.get("n_dead_tup"),
             last_vacuum=str(row.get("last_vacuum")) if row.get("last_vacuum") else None,
-            last_analyze=str(row.get("last_analyze")) if row.get("last_analyze") else None,
+            last_analyze=str(row.get("last_analyze"))
+            if row.get("last_analyze")
+            else None,
         )
 
 
@@ -238,7 +240,7 @@ class TableStats(BaseModel):
 
 class DatabaseInfo(BaseModel):
     """Database connection and version info."""
-    
+
     version: str
     server_version: str
     database: str
@@ -256,7 +258,7 @@ class DatabaseInfo(BaseModel):
 
 class QueryResult(BaseModel):
     """Query execution result."""
-    
+
     success: bool = True
     rows: list[dict] = []
     row_count: int = 0
@@ -268,10 +270,9 @@ class QueryResult(BaseModel):
 
 class ExplainResult(BaseModel):
     """EXPLAIN query result."""
-    
+
     plan: list[dict] = []
     planning_time_ms: Optional[float] = None
     execution_time_ms: Optional[float] = None
     total_cost: Optional[float] = None
     rows_estimate: Optional[int] = None
-

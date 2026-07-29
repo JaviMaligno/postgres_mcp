@@ -1,7 +1,5 @@
 """Tests for postgres_mcp.models module."""
 
-import pytest
-
 from postgres_mcp.models import (
     SchemaSummary,
     TableSummary,
@@ -16,14 +14,14 @@ from postgres_mcp.models import (
 
 class TestSchemaSummary:
     """Tests for SchemaSummary model."""
-    
+
     def test_from_row(self):
         """SchemaSummary should parse row correctly."""
         row = {"schema_name": "public", "schema_owner": "postgres"}
         schema = SchemaSummary.from_row(row)
         assert schema.name == "public"
         assert schema.owner == "postgres"
-    
+
     def test_from_row_missing_fields(self):
         """SchemaSummary should handle missing fields."""
         row = {}
@@ -34,7 +32,7 @@ class TestSchemaSummary:
 
 class TestTableSummary:
     """Tests for TableSummary model."""
-    
+
     def test_from_row(self):
         """TableSummary should parse row correctly."""
         row = {
@@ -46,7 +44,7 @@ class TestTableSummary:
         assert table.name == "users"
         assert table.type == "BASE TABLE"
         assert table.schema_name == "public"
-    
+
     def test_defaults(self):
         """TableSummary should have sensible defaults."""
         row = {"table_name": "test"}
@@ -57,7 +55,7 @@ class TestTableSummary:
 
 class TestColumnInfo:
     """Tests for ColumnInfo model."""
-    
+
     def test_from_row(self):
         """ColumnInfo should parse row correctly."""
         row = {
@@ -75,22 +73,22 @@ class TestColumnInfo:
         assert col.nullable is False
         assert col.is_primary_key is True
         assert col.precision == 32
-    
+
     def test_nullable_mapping(self):
         """ColumnInfo should correctly map is_nullable."""
         row_yes = {"column_name": "test", "data_type": "text", "is_nullable": "YES"}
         row_no = {"column_name": "test", "data_type": "text", "is_nullable": "NO"}
-        
+
         col_yes = ColumnInfo.from_row(row_yes)
         col_no = ColumnInfo.from_row(row_no)
-        
+
         assert col_yes.nullable is True
         assert col_no.nullable is False
 
 
 class TestIndexInfo:
     """Tests for IndexInfo model."""
-    
+
     def test_from_row(self):
         """IndexInfo should parse row correctly."""
         row = {
@@ -106,7 +104,7 @@ class TestIndexInfo:
         assert idx.table_name == "users"
         assert idx.is_unique is True
         assert idx.is_primary is True
-    
+
     def test_columns_parsing(self):
         """IndexInfo should parse columns string."""
         row = {
@@ -120,7 +118,7 @@ class TestIndexInfo:
 
 class TestConstraintInfo:
     """Tests for ConstraintInfo model."""
-    
+
     def test_from_row(self):
         """ConstraintInfo should parse row correctly."""
         row = {
@@ -137,7 +135,7 @@ class TestConstraintInfo:
 
 class TestViewSummary:
     """Tests for ViewSummary model."""
-    
+
     def test_from_row(self):
         """ViewSummary should parse row correctly."""
         row = {"table_name": "user_view", "table_schema": "public"}
@@ -148,7 +146,7 @@ class TestViewSummary:
 
 class TestFunctionSummary:
     """Tests for FunctionSummary model."""
-    
+
     def test_from_row(self):
         """FunctionSummary should parse row correctly."""
         row = {
@@ -168,7 +166,7 @@ class TestFunctionSummary:
 
 class TestTableStats:
     """Tests for TableStats model."""
-    
+
     def test_from_row(self):
         """TableStats should parse row correctly."""
         row = {

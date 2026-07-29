@@ -89,6 +89,7 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - name: Load sample data
@@ -122,13 +123,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
       
+      # Both steps used to carry continue-on-error, which made this job report
+      # green over 22 lint errors and 13 unformatted files. Those are fixed, so
+      # the gate is real now.
       - name: Check formatting with ruff
         run: uv run ruff format --check .
-        continue-on-error: true
-      
+
       - name: Lint with ruff
         run: uv run ruff check .
-        continue-on-error: true
 
   build-python:
     runs-on: ubuntu-latest
