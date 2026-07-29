@@ -5,54 +5,213 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 // src/settings.ts
 import { z } from "zod";
-var settingsSchema = z.object({
-  postgresHost: z.string().default("localhost"),
-  postgresPort: z.number().min(1).max(65535).default(5432),
-  postgresUser: z.string().min(1, "POSTGRES_USER is required"),
-  postgresPassword: z.string().min(1, "POSTGRES_PASSWORD is required"),
-  postgresDb: z.string().min(1, "POSTGRES_DB is required"),
-  postgresSslmode: z.enum(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]).default("prefer"),
+var DEFAULT_ALIAS = "default";
+var SSL_MODES = ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"];
+var globalSettingsSchema = z.object({
   allowWriteOperations: z.boolean().default(false),
   queryTimeout: z.number().min(1).max(300).default(30),
   maxRows: z.number().min(1).max(1e4).default(1e3)
 });
+var connectionInputSchema = z.object({
+  alias: z.string().min(1, "alias is required").regex(
+    /^[A-Za-z0-9_-]+$/,
+    "alias may only contain letters, digits, hyphens and underscores"
+  ),
+  url: z.string().min(1).optional(),
+  host: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  user: z.string().min(1).optional(),
+  password: z.string().optional(),
+  database: z.string().min(1).optional(),
+  sslmode: z.enum(SSL_MODES).optional(),
+  /** Overrides ALLOW_WRITE_OPERATIONS for this connection only. */
+  allowWrite: z.boolean().optional(),
+  /** Marks the connection used when a tool call omits `database`. */
+  default: z.boolean().optional()
+}).refine((c) => c.url !== void 0 || c.user !== void 0 && c.database !== void 0, {
+  message: 'each connection needs either "url" or both "user" and "database"'
+});
 var cachedSettings = null;
+var cachedConnections = null;
+function parseIntEnv(value, fallback) {
+  if (value === void 0 || value === "") return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
 function getSettings() {
   if (cachedSettings) {
     return cachedSettings;
   }
-  const rawSettings = {
-    postgresHost: process.env.POSTGRES_HOST || "localhost",
-    postgresPort: parseInt(process.env.POSTGRES_PORT || "5432", 10),
-    postgresUser: process.env.POSTGRES_USER || "",
-    postgresPassword: process.env.POSTGRES_PASSWORD || "",
-    postgresDb: process.env.POSTGRES_DB || "",
-    postgresSslmode: process.env.POSTGRES_SSLMODE || "prefer",
+  const result = globalSettingsSchema.safeParse({
     allowWriteOperations: process.env.ALLOW_WRITE_OPERATIONS === "true",
-    queryTimeout: parseInt(process.env.QUERY_TIMEOUT || "30", 10),
-    maxRows: parseInt(process.env.MAX_ROWS || "1000", 10)
-  };
-  const result = settingsSchema.safeParse(rawSettings);
+    queryTimeout: parseIntEnv(process.env.QUERY_TIMEOUT, 30),
+    maxRows: parseIntEnv(process.env.MAX_ROWS, 1e3)
+  });
   if (!result.success) {
     const errors = result.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ");
     throw new Error(`Configuration error: ${errors}`);
   }
   cachedSettings = result.data;
+  listConnections();
   return cachedSettings;
 }
-function getConnectionConfig() {
+function fromUrl(alias, url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Configuration error: connection "${alias}" has an unparseable url`);
+  }
+  if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
+    throw new Error(
+      `Configuration error: connection "${alias}" must use a postgres:// or postgresql:// url, got "${parsed.protocol}//"`
+    );
+  }
+  const database = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  if (!database) {
+    throw new Error(`Configuration error: connection "${alias}" url has no database name`);
+  }
+  const sslmode = parsed.searchParams.get("sslmode") ?? void 0;
+  if (sslmode !== void 0 && !SSL_MODES.includes(sslmode)) {
+    throw new Error(`Configuration error: connection "${alias}" has an unknown sslmode "${sslmode}"`);
+  }
+  return {
+    host: parsed.hostname || "localhost",
+    port: parsed.port ? parseInt(parsed.port, 10) : 5432,
+    user: decodeURIComponent(parsed.username),
+    password: decodeURIComponent(parsed.password),
+    database,
+    sslmode
+  };
+}
+function singleConnectionFromEnv(defaultAllowWrite) {
+  const schema = z.object({
+    host: z.string().default("localhost"),
+    port: z.number().min(1).max(65535).default(5432),
+    user: z.string().min(1, "POSTGRES_USER is required"),
+    password: z.string().min(1, "POSTGRES_PASSWORD is required"),
+    database: z.string().min(1, "POSTGRES_DB is required"),
+    sslmode: z.enum(SSL_MODES).default("prefer")
+  });
+  const result = schema.safeParse({
+    host: process.env.POSTGRES_HOST || "localhost",
+    port: parseIntEnv(process.env.POSTGRES_PORT, 5432),
+    user: process.env.POSTGRES_USER || "",
+    password: process.env.POSTGRES_PASSWORD || "",
+    database: process.env.POSTGRES_DB || "",
+    sslmode: process.env.POSTGRES_SSLMODE || "prefer"
+  });
+  if (!result.success) {
+    const errors = result.error.issues.map((e) => e.message).join(", ");
+    throw new Error(`Configuration error: ${errors}`);
+  }
+  return {
+    alias: DEFAULT_ALIAS,
+    ...result.data,
+    allowWrite: defaultAllowWrite,
+    isDefault: true
+  };
+}
+function connectionsFromJson(raw, defaultAllowWrite) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Configuration error: POSTGRES_CONNECTIONS is not valid JSON");
+  }
+  const result = z.array(connectionInputSchema).safeParse(parsed);
+  if (!result.success) {
+    const errors = result.error.issues.map((e) => `${["POSTGRES_CONNECTIONS", ...e.path].join(".")}: ${e.message}`).join(", ");
+    throw new Error(`Configuration error: ${errors}`);
+  }
+  if (result.data.length === 0) {
+    throw new Error("Configuration error: POSTGRES_CONNECTIONS is empty \u2014 declare at least one connection");
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const entry of result.data) {
+    if (seen.has(entry.alias)) {
+      throw new Error(`Configuration error: duplicate connection alias "${entry.alias}"`);
+    }
+    seen.add(entry.alias);
+  }
+  const explicitDefaults = result.data.filter((c) => c.default === true);
+  if (explicitDefaults.length > 1) {
+    const aliases = explicitDefaults.map((c) => c.alias).join(", ");
+    throw new Error(`Configuration error: more than one default connection: ${aliases}`);
+  }
+  const defaultAlias = (explicitDefaults[0] ?? result.data[0]).alias;
+  return result.data.map((entry) => {
+    const fromDsn = entry.url ? fromUrl(entry.alias, entry.url) : void 0;
+    const host = entry.host ?? fromDsn?.host ?? "localhost";
+    const port = entry.port ?? fromDsn?.port ?? 5432;
+    const user = entry.user ?? fromDsn?.user ?? "";
+    const password = entry.password ?? fromDsn?.password ?? "";
+    const database = entry.database ?? fromDsn?.database ?? "";
+    const sslmode = entry.sslmode ?? fromDsn?.sslmode ?? "prefer";
+    if (!user || !database) {
+      throw new Error(
+        `Configuration error: connection "${entry.alias}" is missing a user or a database name`
+      );
+    }
+    return {
+      alias: entry.alias,
+      host,
+      port,
+      user,
+      password,
+      database,
+      sslmode,
+      allowWrite: entry.allowWrite ?? defaultAllowWrite,
+      isDefault: entry.alias === defaultAlias
+    };
+  });
+}
+function getConnections() {
+  if (cachedConnections) {
+    return cachedConnections;
+  }
+  const defaultAllowWrite = process.env.ALLOW_WRITE_OPERATIONS === "true";
+  const raw = process.env.POSTGRES_CONNECTIONS;
+  cachedConnections = raw ? connectionsFromJson(raw, defaultAllowWrite) : [singleConnectionFromEnv(defaultAllowWrite)];
+  return cachedConnections;
+}
+function listConnections() {
+  return getConnections().map(({ alias, host, port, database, allowWrite, isDefault }) => ({
+    alias,
+    host,
+    port,
+    database,
+    allowWrite,
+    isDefault
+  }));
+}
+function resolveAlias(alias) {
+  const connections = getConnections();
+  if (alias === void 0 || alias === "") {
+    const fallback = connections.find((c) => c.isDefault) ?? connections[0];
+    return fallback;
+  }
+  const found = connections.find((c) => c.alias === alias);
+  if (!found) {
+    const available = connections.map((c) => c.alias).join(", ");
+    throw new Error(`Unknown database "${alias}". Configured connections: ${available}`);
+  }
+  return found;
+}
+function getConnectionConfig(alias) {
+  const connection = resolveAlias(alias);
   const settings = getSettings();
   const config = {
-    host: settings.postgresHost,
-    port: settings.postgresPort,
-    user: settings.postgresUser,
-    password: settings.postgresPassword,
-    database: settings.postgresDb,
+    host: connection.host,
+    port: connection.port,
+    user: connection.user,
+    password: connection.password,
+    database: connection.database,
     statement_timeout: settings.queryTimeout * 1e3
   };
-  if (settings.postgresSslmode !== "disable") {
+  if (connection.sslmode !== "disable") {
     config.ssl = {
-      rejectUnauthorized: ["verify-ca", "verify-full"].includes(settings.postgresSslmode)
+      rejectUnauthorized: ["verify-ca", "verify-full"].includes(connection.sslmode)
     };
   }
   return config;
@@ -153,9 +312,15 @@ var PostgresClientError = class extends Error {
 };
 var PostgresClient = class {
   pool;
-  constructor() {
-    const config = getConnectionConfig();
-    this.pool = new Pool(config);
+  /** Which configured connection this client talks to. */
+  alias;
+  /** Write permission for this connection specifically, not globally. */
+  allowWrite;
+  constructor(alias) {
+    const connection = resolveAlias(alias);
+    this.alias = connection.alias;
+    this.allowWrite = connection.allowWrite;
+    this.pool = new Pool(getConnectionConfig(connection.alias));
   }
   /**
    * Close the connection pool
@@ -542,12 +707,15 @@ var PostgresClient = class {
     return result.rows;
   }
 };
-var clientInstance = null;
-function getClient() {
-  if (!clientInstance) {
-    clientInstance = new PostgresClient();
+var clients = /* @__PURE__ */ new Map();
+function getClient(alias) {
+  const resolved = resolveAlias(alias).alias;
+  let client = clients.get(resolved);
+  if (!client) {
+    client = new PostgresClient(resolved);
+    clients.set(resolved, client);
   }
-  return clientInstance;
+  return client;
 }
 
 // src/utils.ts
@@ -587,7 +755,7 @@ function formatTimestamp(date) {
 }
 
 // src/tools.ts
-var toolDefinitions = [
+var databaseToolDefinitions = [
   // Query tools
   {
     name: "query",
@@ -602,7 +770,7 @@ var toolDefinitions = [
   },
   {
     name: "execute",
-    description: "Execute a write SQL statement (INSERT, UPDATE, DELETE). WARNING: This tool modifies data. Only available if ALLOW_WRITE_OPERATIONS=true is set.",
+    description: "Execute a write SQL statement (INSERT, UPDATE, DELETE). WARNING: This tool modifies data. Available only when writes are enabled globally or for the selected database.",
     inputSchema: {
       type: "object",
       properties: {
@@ -755,8 +923,44 @@ var toolDefinitions = [
     }
   }
 ];
+var DATABASE_ARG = {
+  type: "string",
+  description: "Alias of the configured database to run against. Omit to use the default connection. Call list_databases to see which aliases exist."
+};
+function withDatabaseArg(tool) {
+  return {
+    ...tool,
+    inputSchema: {
+      ...tool.inputSchema,
+      properties: {
+        ...tool.inputSchema.properties ?? {},
+        database: DATABASE_ARG
+      }
+    }
+  };
+}
+var toolDefinitions = [
+  ...databaseToolDefinitions.map(withDatabaseArg),
+  {
+    name: "list_databases",
+    description: 'List the databases this server is configured to reach, by alias, with their host, database name, whether writes are allowed, and which one is the default. Credentials are never returned. Call this first when the user mentions a database by name, then pass the alias as the "database" argument of any other tool.',
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: []
+    }
+  }
+];
 async function handleToolCall(name, args) {
-  const client = getClient();
+  if (name === "list_databases") {
+    const connections = listConnections();
+    return {
+      connections,
+      default: connections.find((c) => c.isDefault)?.alias,
+      hint: 'Pass an alias as the "database" argument of any other tool. Omit it to use the default.'
+    };
+  }
+  const client = getClient(args.database);
   const settings = getSettings();
   switch (name) {
     case "query": {
@@ -772,10 +976,10 @@ async function handleToolCall(name, args) {
       };
     }
     case "execute": {
-      if (!settings.allowWriteOperations) {
+      if (!client.allowWrite) {
         return {
           success: false,
-          error: "Write operations are disabled. Set ALLOW_WRITE_OPERATIONS=true to enable."
+          error: `Write operations are disabled for database "${client.alias}". Set ALLOW_WRITE_OPERATIONS=true, or "allowWrite": true on that connection, to enable.`
         };
       }
       const result = await client.executeQuery(args.sql, void 0, {

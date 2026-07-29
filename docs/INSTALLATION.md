@@ -166,8 +166,46 @@ Start a Claude Code session and test:
 | `ALLOW_WRITE_OPERATIONS` | No | false | Enable INSERT/UPDATE/DELETE |
 | `QUERY_TIMEOUT` | No | 30 | Query timeout in seconds |
 | `MAX_ROWS` | No | 1000 | Maximum rows to return |
+| `POSTGRES_CONNECTIONS` | No | - | JSON array of named connections — see below. Replaces the `POSTGRES_*` variables above when set (TypeScript only, for now) |
 
-## Available Tools (14 total)
+### Reaching several databases
+
+The variables above pin the server to one database, which means editing this
+configuration and restarting your client to look at another one. Declare named
+connections instead:
+
+```jsonc
+POSTGRES_CONNECTIONS='[
+  {"alias":"local","host":"localhost","user":"me","password":"…","database":"app","allowWrite":true},
+  {"alias":"prod","url":"postgresql://readonly:…@prod.example.com:5432/app?sslmode=require","default":true}
+]'
+```
+
+Then ask for a database by alias in conversation ("list the tables in prod").
+`list_databases` shows the available aliases, and every other tool takes an
+optional `database` argument. Omitting it uses the connection marked
+`"default": true`, or the first declared. Marking more than one default is
+rejected.
+
+Per-connection fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `alias` | Yes | Name used in tool calls. Letters, digits, `-` and `_` |
+| `url` | Either this… | `postgresql://user:password@host:port/database?sslmode=…` |
+| `host`, `port`, `user`, `password`, `database`, `sslmode` | …or these | Discrete fields; they override the same field from `url` |
+| `allowWrite` | No | Write permission for this connection, defaulting to `ALLOW_WRITE_OPERATIONS` |
+| `default` | No | Use this connection when a tool call omits `database` |
+
+The read-only user created in [Step 2](#step-2-configure-database-access) is
+worth applying per connection: give the production alias the read-only role and
+leave `allowWrite` off, and reserve `allowWrite: true` for a local database.
+
+Credentials come from this environment only. There is no tool argument that
+accepts a host, user, password or connection string — that would put secrets in
+the conversation with the model.
+
+## Available Tools (15 total)
 
 ### Query Execution
 | Tool | Description |

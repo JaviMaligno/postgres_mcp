@@ -30,7 +30,11 @@ const EXPECTED_TOOLS = [
   'list_functions',
   'get_database_info',
   'search_columns',
+  'list_databases',
 ];
+
+/** Everything except list_databases, which reads configuration, not a database. */
+const DATABASE_TOOLS = EXPECTED_TOOLS.filter((t) => t !== 'list_databases');
 
 describe('MCP server', () => {
   let client: Client;
@@ -60,6 +64,39 @@ describe('MCP server', () => {
     for (const tool of tools) {
       expect(tool.description, `${tool.name} has no description`).toBeTruthy();
       expect(tool.inputSchema, `${tool.name} has no inputSchema`).toBeTruthy();
+    }
+  });
+
+  it('offers the database argument on every database tool', async () => {
+    const { tools } = await client.listTools();
+
+    for (const name of DATABASE_TOOLS) {
+      const tool = tools.find((t) => t.name === name)!;
+      const properties = tool.inputSchema.properties as Record<string, unknown> | undefined;
+
+      expect(properties?.database, `${name} has no database argument`).toBeDefined();
+      // Optional everywhere: omitting it must keep meaning "the default one".
+      expect(tool.inputSchema.required ?? []).not.toContain('database');
+    }
+  });
+
+  it('does not put a database argument on list_databases', async () => {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === 'list_databases')!;
+
+    expect((tool.inputSchema.properties as Record<string, unknown>).database).toBeUndefined();
+  });
+
+  it('never offers a way to pass credentials as tool arguments', async () => {
+    // The whole point of aliases: secrets stay in the environment.
+    const { tools } = await client.listTools();
+    const forbidden = ['password', 'host', 'user', 'connection_string', 'url', 'dsn'];
+
+    for (const tool of tools) {
+      const properties = Object.keys((tool.inputSchema.properties ?? {}) as object);
+      for (const key of forbidden) {
+        expect(properties, `${tool.name} accepts "${key}"`).not.toContain(key);
+      }
     }
   });
 
