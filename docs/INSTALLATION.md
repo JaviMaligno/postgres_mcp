@@ -166,7 +166,7 @@ Start a Claude Code session and test:
 | `ALLOW_WRITE_OPERATIONS` | No | false | Enable INSERT/UPDATE/DELETE |
 | `QUERY_TIMEOUT` | No | 30 | Query timeout in seconds |
 | `MAX_ROWS` | No | 1000 | Maximum rows to return |
-| `POSTGRES_CONNECTIONS` | No | - | JSON array of named connections — see below. Replaces the `POSTGRES_*` variables above when set (TypeScript only, for now) |
+| `POSTGRES_CONNECTIONS` | No | - | JSON array of named connections — see below. Replaces the `POSTGRES_*` variables above when set |
 
 ### Reaching several databases
 

@@ -42,8 +42,9 @@ claude mcp add postgres -s user \
 
 ## What it provides
 
-- **14 tools** — query execution, schema exploration, table analysis, EXPLAIN plans
+- **15 tools** — query execution, schema exploration, table analysis, EXPLAIN plans
 - **4 prompts** — guided workflows for exploration, query building, performance analysis and documentation
+- **Named databases** — select a configured connection per tool call without exposing credentials
 - **Resources** — browsable database structure as markdown
 - **Read-only by default**, with SQL injection prevention and credential protection
 

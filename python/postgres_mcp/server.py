@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostgreSQL MCP Server using FastMCP.
+"""PostgreSQL MCP Server using MCP SDK v2.
 
 Provides tools for interacting with PostgreSQL databases,
 including querying, schema exploration, and table management.
@@ -14,11 +14,11 @@ Usage:
 
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from postgres_mcp.__version__ import __version__
 from postgres_mcp.postgres_client import get_client
-from postgres_mcp.settings import get_settings
+from postgres_mcp.settings import get_settings, list_connections
 from postgres_mcp.utils import (
     format_bytes,
     format_count,
@@ -33,11 +33,32 @@ from postgres_mcp.models import (
     FunctionSummary,
 )
 
-# Initialize FastMCP server
-mcp = FastMCP(
+# Initialize MCP server
+mcp = MCPServer(
     "postgres",
     instructions=f"PostgreSQL MCP Server v{__version__} - Tools for PostgreSQL database operations",
 )
+
+
+# ==================== CONNECTION TOOLS ====================
+
+
+@mcp.tool()
+def list_databases() -> dict:
+    """List configured database aliases without exposing credentials."""
+    connections = list_connections()
+    default = next(
+        (item["alias"] for item in connections if item["isDefault"]),
+        None,
+    )
+    return {
+        "connections": connections,
+        "default": default,
+        "hint": (
+            'Pass an alias as the "database" argument of any other tool. '
+            "Omit it to use the default."
+        ),
+    }
 
 
 # ==================== QUERY TOOLS ====================
@@ -45,7 +66,7 @@ mcp = FastMCP(
 
 @mcp.tool()
 @handle_db_error
-def query(sql: str) -> dict:
+def query(sql: str, database: Optional[str] = None) -> dict:
     """Execute a SQL query against the PostgreSQL database.
 
     This tool is READ-ONLY by default. Use the 'execute' tool for write operations.
@@ -56,7 +77,7 @@ def query(sql: str) -> dict:
     Returns:
         Query results with rows, columns, and metadata
     """
-    client = get_client()
+    client = get_client(database)
     settings = get_settings()
 
     result = client.execute_query(sql, allow_write=False, max_rows=settings.max_rows)
@@ -71,11 +92,12 @@ def query(sql: str) -> dict:
 
 @mcp.tool()
 @handle_db_error
-def execute(sql: str) -> dict:
+def execute(sql: str, database: Optional[str] = None) -> dict:
     """Execute a write SQL statement (INSERT, UPDATE, DELETE).
 
     WARNING: This tool modifies data. Use with caution.
-    Only available if ALLOW_WRITE_OPERATIONS=true is set.
+    Only available when the selected connection allows writes via `allowWrite`,
+    or via the legacy ALLOW_WRITE_OPERATIONS setting.
 
     Args:
         sql: SQL statement to execute
@@ -83,15 +105,16 @@ def execute(sql: str) -> dict:
     Returns:
         Execution result with affected row count
     """
-    settings = get_settings()
+    client = get_client(database)
 
-    if not settings.allow_write_operations:
+    if not client.allow_write:
         return {
             "success": False,
-            "error": "Write operations are disabled. Set ALLOW_WRITE_OPERATIONS=true to enable.",
+            "error": (
+                "Write operations are disabled for this database. "
+                "Set allowWrite=true on its connection to enable."
+            ),
         }
-
-    client = get_client()
     result = client.execute_query(sql, allow_write=True)
 
     return {
@@ -103,7 +126,9 @@ def execute(sql: str) -> dict:
 
 @mcp.tool()
 @handle_db_error
-def explain_query(sql: str, analyze: bool = False) -> dict:
+def explain_query(
+    sql: str, analyze: bool = False, database: Optional[str] = None
+) -> dict:
     """Get the execution plan for a SQL query (EXPLAIN).
 
     Args:
@@ -114,7 +139,7 @@ def explain_query(sql: str, analyze: bool = False) -> dict:
     Returns:
         Execution plan in JSON format with cost estimates
     """
-    client = get_client()
+    client = get_client(database)
     return client.explain_query(sql, analyze=analyze)
 
 
@@ -123,13 +148,13 @@ def explain_query(sql: str, analyze: bool = False) -> dict:
 
 @mcp.tool()
 @handle_db_error
-def list_schemas() -> dict:
+def list_schemas(database: Optional[str] = None) -> dict:
     """List all schemas in the PostgreSQL database.
 
     Returns:
         List of schemas with name and owner
     """
-    client = get_client()
+    client = get_client(database)
     schemas = client.list_schemas()
 
     return {
@@ -142,7 +167,7 @@ def list_schemas() -> dict:
 
 @mcp.tool()
 @handle_db_error
-def list_tables(schema: str = "public") -> dict:
+def list_tables(schema: str = "public", database: Optional[str] = None) -> dict:
     """List all tables in a specific schema.
 
     Args:
@@ -151,7 +176,7 @@ def list_tables(schema: str = "public") -> dict:
     Returns:
         List of tables with name and type
     """
-    client = get_client()
+    client = get_client(database)
     tables = client.list_tables(schema)
 
     return {
@@ -162,7 +187,9 @@ def list_tables(schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def describe_table(table_name: str, schema: str = "public") -> dict:
+def describe_table(
+    table_name: str, schema: str = "public", database: Optional[str] = None
+) -> dict:
     """Describe the structure of a table including columns, types, and constraints.
 
     Args:
@@ -172,7 +199,7 @@ def describe_table(table_name: str, schema: str = "public") -> dict:
     Returns:
         Table structure with columns, primary keys, and foreign keys
     """
-    client = get_client()
+    client = get_client(database)
     result = client.describe_table(table_name, schema)
 
     if not result["columns"]:
@@ -195,7 +222,9 @@ def describe_table(table_name: str, schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def table_stats(table_name: str, schema: str = "public") -> dict:
+def table_stats(
+    table_name: str, schema: str = "public", database: Optional[str] = None
+) -> dict:
     """Get statistics for a table (row count, size, bloat).
 
     Args:
@@ -205,7 +234,7 @@ def table_stats(table_name: str, schema: str = "public") -> dict:
     Returns:
         Table statistics including row count, sizes, and vacuum info
     """
-    client = get_client()
+    client = get_client(database)
     stats = client.get_table_stats(table_name, schema)
 
     if not stats:
@@ -237,7 +266,9 @@ def table_stats(table_name: str, schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def list_indexes(table_name: str, schema: str = "public") -> dict:
+def list_indexes(
+    table_name: str, schema: str = "public", database: Optional[str] = None
+) -> dict:
     """List all indexes for a table.
 
     Args:
@@ -247,7 +278,7 @@ def list_indexes(table_name: str, schema: str = "public") -> dict:
     Returns:
         List of indexes with name, columns, type, and size
     """
-    client = get_client()
+    client = get_client(database)
     indexes = client.list_indexes(table_name, schema)
 
     return {
@@ -272,7 +303,9 @@ def list_indexes(table_name: str, schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def list_constraints(table_name: str, schema: str = "public") -> dict:
+def list_constraints(
+    table_name: str, schema: str = "public", database: Optional[str] = None
+) -> dict:
     """List all constraints for a table (PK, FK, UNIQUE, CHECK).
 
     Args:
@@ -282,7 +315,7 @@ def list_constraints(table_name: str, schema: str = "public") -> dict:
     Returns:
         List of constraints with type, columns, and references
     """
-    client = get_client()
+    client = get_client(database)
     constraints = client.list_constraints(table_name, schema)
 
     # Group by constraint name to handle multi-column constraints
@@ -313,7 +346,7 @@ def list_constraints(table_name: str, schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def list_views(schema: str = "public") -> dict:
+def list_views(schema: str = "public", database: Optional[str] = None) -> dict:
     """List all views in a schema.
 
     Args:
@@ -322,7 +355,7 @@ def list_views(schema: str = "public") -> dict:
     Returns:
         List of views with name
     """
-    client = get_client()
+    client = get_client(database)
     views = client.list_views(schema)
 
     return {
@@ -333,7 +366,9 @@ def list_views(schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def describe_view(view_name: str, schema: str = "public") -> dict:
+def describe_view(
+    view_name: str, schema: str = "public", database: Optional[str] = None
+) -> dict:
     """Get the definition and columns of a view.
 
     Args:
@@ -343,7 +378,7 @@ def describe_view(view_name: str, schema: str = "public") -> dict:
     Returns:
         View definition SQL and column list
     """
-    client = get_client()
+    client = get_client(database)
     result = client.describe_view(view_name, schema)
 
     if not result["definition"]:
@@ -357,7 +392,7 @@ def describe_view(view_name: str, schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def list_functions(schema: str = "public") -> dict:
+def list_functions(schema: str = "public", database: Optional[str] = None) -> dict:
     """List all functions and procedures in a schema.
 
     Args:
@@ -366,7 +401,7 @@ def list_functions(schema: str = "public") -> dict:
     Returns:
         List of functions with name, arguments, and return type
     """
-    client = get_client()
+    client = get_client(database)
     functions = client.list_functions(schema)
 
     return {
@@ -380,13 +415,13 @@ def list_functions(schema: str = "public") -> dict:
 
 @mcp.tool()
 @handle_db_error
-def get_database_info() -> dict:
+def get_database_info(database: Optional[str] = None) -> dict:
     """Get database and connection information.
 
     Returns:
         Database version, connection info, and settings
     """
-    client = get_client()
+    client = get_client(database)
     return client.get_database_info()
 
 
@@ -395,7 +430,9 @@ def get_database_info() -> dict:
 
 @mcp.tool()
 @handle_db_error
-def search_columns(search_term: str, schema: Optional[str] = None) -> dict:
+def search_columns(
+    search_term: str, schema: Optional[str] = None, database: Optional[str] = None
+) -> dict:
     """Search for columns by name across all tables.
 
     Args:
@@ -405,7 +442,7 @@ def search_columns(search_term: str, schema: Optional[str] = None) -> dict:
     Returns:
         List of matching columns with table information
     """
-    client = get_client()
+    client = get_client(database)
     columns = client.search_columns(search_term, schema)
 
     return {

@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=2.0.0,<3",
     "psycopg2-binary>=2.9.9",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",

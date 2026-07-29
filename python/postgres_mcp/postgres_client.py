@@ -12,7 +12,13 @@ from typing import Any, Generator, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-from postgres_mcp.settings import Settings, get_settings
+from postgres_mcp.settings import (
+    DEFAULT_ALIAS,
+    Connection,
+    Settings,
+    get_settings,
+    resolve_connection,
+)
 from postgres_mcp.security import (
     validate_query,
 )
@@ -33,13 +39,32 @@ class PostgresClient:
     security validations and error handling.
     """
 
-    def __init__(self, settings: Optional[Settings] = None):
-        """Initialize the client.
+    def __init__(
+        self, settings: Optional[Settings] = None, alias: Optional[str] = None
+    ):
+        """Initialize a client for one configured connection.
 
-        Args:
-            settings: Optional settings instance. Uses get_settings() if not provided.
+        Explicit ``settings`` keeps the legacy dependency-injection API used by
+        existing callers and tests. Otherwise ``alias`` selects a named
+        connection, with omission resolving to the configured default.
         """
         self.settings = settings or get_settings()
+        if settings is not None:
+            self.connection = Connection(
+                alias=DEFAULT_ALIAS,
+                host=settings.postgres_host,
+                port=settings.postgres_port,
+                user=settings.postgres_user,
+                password=settings.postgres_password,
+                database=settings.postgres_db,
+                sslmode=settings.postgres_sslmode,
+                allow_write=settings.allow_write_operations,
+                is_default=True,
+            )
+        else:
+            self.connection = resolve_connection(alias)
+        self.alias = self.connection.alias
+        self.allow_write = self.connection.allow_write
         self._connection: Optional[psycopg2.extensions.connection] = None
 
     @contextmanager
@@ -55,7 +80,7 @@ class PostgresClient:
         conn = None
         try:
             conn = psycopg2.connect(
-                **self.settings.get_connection_dict(),
+                **self.connection.get_connection_dict(self.settings.query_timeout),
                 cursor_factory=RealDictCursor,
             )
             yield conn
@@ -600,26 +625,18 @@ class PostgresClient:
             return [dict(row) for row in cursor.fetchall()]
 
 
-# Singleton instance
-_client: Optional[PostgresClient] = None
+# One lazy client per resolved connection alias.
+_clients: dict[str, PostgresClient] = {}
 
 
-def get_client() -> PostgresClient:
-    """Get the singleton PostgresClient instance.
-
-    Returns:
-        PostgresClient instance
-    """
-    global _client
-    if _client is None:
-        _client = PostgresClient()
-    return _client
+def get_client(alias: Optional[str] = None) -> PostgresClient:
+    """Get or create the client for an alias (the default when omitted)."""
+    resolved = resolve_connection(alias).alias
+    if resolved not in _clients:
+        _clients[resolved] = PostgresClient(alias=resolved)
+    return _clients[resolved]
 
 
 def reset_client() -> None:
-    """Reset the singleton client.
-
-    Useful for testing when settings change.
-    """
-    global _client
-    _client = None
+    """Forget every cached client (useful when test environments change)."""
+    _clients.clear()

@@ -16,11 +16,11 @@ This repository contains both **TypeScript** and **Python** implementations:
 | Version | Directory | Status | MCP protocol | Installation |
 |---------|-----------|--------|--------------|--------------|
 | **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `2026-07-28` (SDK v2) | `npm install -g postgresql-mcp` |
-| Python | `/python` | ✅ Stable | `2025-11-25` (SDK v1) | `pipx install postgresql-mcp` |
+| Python | `/python` | ✅ Stable | `2026-07-28` (SDK v2) | `pipx install postgresql-mcp` |
 
 > **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
 
-> **Protocol compatibility**: the TypeScript server speaks the
+> **Protocol compatibility**: both servers speak the
 > [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) revision and is
 > **dual-era** — clients that still open with the 2025-era `initialize` handshake are served
 > exactly as before, so no client needs upgrading. Requires Node.js 20+.
@@ -80,7 +80,7 @@ claude mcp add postgres -s user \
 | `QUERY_TIMEOUT` | | 30 | Query timeout (seconds) |
 | `MAX_ROWS` | | 1000 | Maximum rows returned |
 
-### Multiple databases (TypeScript only, for now)
+### Multiple databases
 
 Most real work touches more than one database. Instead of editing this config and
 restarting your client every time, declare several connections and pick one per
@@ -164,7 +164,7 @@ Add to `~/.cursor/mcp.json`:
 ## Available Tools (15 total)
 
 Every tool below except `list_databases` accepts an optional `database` argument
-naming a configured connection — see [Multiple databases](#multiple-databases-typescript-only-for-now).
+naming a configured connection — see [Multiple databases](#multiple-databases).
 
 ### Query Execution
 | Tool | Description |
