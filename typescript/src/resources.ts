@@ -2,7 +2,8 @@
  * MCP Resources for PostgreSQL Server
  */
 
-import { Resource } from '@modelcontextprotocol/sdk/types.js';
+import { Resource } from '@modelcontextprotocol/server';
+
 import { getClient } from './client.js';
 
 /**

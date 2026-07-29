@@ -13,12 +13,17 @@ MCP server for PostgreSQL database operations. Works with Claude Code, Claude De
 
 This repository contains both **TypeScript** and **Python** implementations:
 
-| Version | Directory | Status | Installation |
-|---------|-----------|--------|--------------|
-| **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `npm install -g postgresql-mcp` |
-| Python | `/python` | ✅ Stable | `pipx install postgresql-mcp` |
+| Version | Directory | Status | MCP protocol | Installation |
+|---------|-----------|--------|--------------|--------------|
+| **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `2026-07-28` (SDK v2) | `npm install -g postgresql-mcp` |
+| Python | `/python` | ✅ Stable | `2025-11-25` (SDK v1) | `pipx install postgresql-mcp` |
 
 > **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
+
+> **Protocol compatibility**: the TypeScript server speaks the
+> [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) revision and is
+> **dual-era** — clients that still open with the 2025-era `initialize` handshake are served
+> exactly as before, so no client needs upgrading. Requires Node.js 20+.
 
 ## Features
 

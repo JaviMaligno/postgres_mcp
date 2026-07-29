@@ -89,13 +89,15 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
+      - run: npm run typecheck
       - run: npm run build
       - name: Load sample data
         env:
           PGPASSWORD: test
         run: psql -h localhost -U test -d test -f ../python/scripts/init_sample_db.sql
+      # No continue-on-error: the TypeScript side has real tests now, so a
+      # failure here has to fail the build like the Python one does.
       - run: npm test
-        continue-on-error: true
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432

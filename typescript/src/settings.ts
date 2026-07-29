@@ -55,7 +55,8 @@ export function getSettings(): Settings {
   const result = settingsSchema.safeParse(rawSettings);
   
   if (!result.success) {
-    const errors = result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
+    // zod v4 renamed ZodError.errors to .issues (v3's alias is gone).
+    const errors = result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
     throw new Error(`Configuration error: ${errors}`);
   }
 

@@ -2,7 +2,8 @@
  * Tool definitions and handlers for PostgreSQL MCP Server
  */
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@modelcontextprotocol/server';
+
 import { getClient } from './client.js';
 import { getSettings } from './settings.js';
 import { formatBytes, formatCount, notFoundResponse, formatTimestamp } from './utils.js';
@@ -180,12 +181,17 @@ export const toolDefinitions: Tool[] = [
 ];
 
 /**
- * Handle tool calls
+ * Handle tool calls.
+ *
+ * Returns `object` rather than `Record<string, unknown>` because several cases
+ * return an interface straight from the client (ExplainResult, ViewDescription,
+ * DatabaseInfo) and interfaces carry no implicit index signature, so they are
+ * not assignable to Record. The caller only JSON-stringifies the result.
  */
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+): Promise<object> {
   const client = getClient();
   const settings = getSettings();
 
