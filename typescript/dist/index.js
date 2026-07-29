@@ -1,16 +1,7 @@
 #!/usr/bin/env node
 
 // src/index.ts
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema
-} from "@modelcontextprotocol/sdk/types.js";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 // src/settings.ts
 import { z } from "zod";
@@ -43,7 +34,7 @@ function getSettings() {
   };
   const result = settingsSchema.safeParse(rawSettings);
   if (!result.success) {
-    const errors = result.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ");
+    const errors = result.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ");
     throw new Error(`Configuration error: ${errors}`);
   }
   cachedSettings = result.data;
@@ -66,6 +57,9 @@ function getConnectionConfig() {
   }
   return config;
 }
+
+// src/server.ts
+import { Server } from "@modelcontextprotocol/server";
 
 // src/client.ts
 import pg from "pg";
@@ -1224,8 +1218,8 @@ Format as markdown suitable for technical documentation.`;
   };
 }
 
-// src/index.ts
-var VERSION = "0.10.0";
+// src/server.ts
+var VERSION = "1.1.0";
 function createServer() {
   const server = new Server(
     {
@@ -1240,12 +1234,12 @@ function createServer() {
       }
     }
   );
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  server.setRequestHandler("tools/list", async () => {
     return {
       tools: toolDefinitions
     };
   });
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler("tools/call", async (request) => {
     const { name, arguments: args } = request.params;
     try {
       const result = await handleToolCall(name, args || {});
@@ -1270,12 +1264,12 @@ function createServer() {
       };
     }
   });
-  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  server.setRequestHandler("resources/list", async () => {
     return {
       resources: resourceDefinitions
     };
   });
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  server.setRequestHandler("resources/read", async (request) => {
     const { uri } = request.params;
     try {
       const content = await handleResourceRead(uri);
@@ -1293,12 +1287,12 @@ function createServer() {
       throw new Error(`Failed to read resource: ${message}`);
     }
   });
-  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  server.setRequestHandler("prompts/list", async () => {
     return {
       prompts: promptDefinitions
     };
   });
-  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  server.setRequestHandler("prompts/get", async (request) => {
     const { name, arguments: args } = request.params;
     try {
       const result = handlePromptGet(name, args || {});
@@ -1310,6 +1304,8 @@ function createServer() {
   });
   return server;
 }
+
+// src/index.ts
 async function main() {
   try {
     getSettings();

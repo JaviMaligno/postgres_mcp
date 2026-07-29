@@ -2,7 +2,7 @@
  * MCP Prompts for PostgreSQL Server
  */
 
-import { Prompt, GetPromptResult } from '@modelcontextprotocol/sdk/types.js';
+import { Prompt, GetPromptResult } from '@modelcontextprotocol/server';
 
 /**
  * Prompt definitions for the MCP server

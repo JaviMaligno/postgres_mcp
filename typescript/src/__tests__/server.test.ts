@@ -1,0 +1,94 @@
+/**
+ * Smoke tests for the MCP server wiring.
+ *
+ * These drive a real client against a real server over an in-memory transport,
+ * so they exercise the SDK v2 request plumbing (method-string handlers,
+ * capability advertisement, error shape) rather than calling the handlers
+ * directly. No PostgreSQL instance is needed: every assertion here is about the
+ * protocol surface, and the one tool call made is expected to fail.
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/server';
+
+import { createServer, VERSION } from '../server.js';
+
+/** Tool names the server has always exposed. A rename here is a breaking change. */
+const EXPECTED_TOOLS = [
+  'query',
+  'execute',
+  'explain_query',
+  'list_schemas',
+  'list_tables',
+  'describe_table',
+  'table_stats',
+  'list_indexes',
+  'list_constraints',
+  'list_views',
+  'describe_view',
+  'list_functions',
+  'get_database_info',
+  'search_columns',
+];
+
+describe('MCP server', () => {
+  let client: Client;
+
+  beforeAll(async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const server = createServer();
+    client = new Client({ name: 'test-client', version: '1.0.0' });
+
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it('advertises every tool, and only those', async () => {
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name).sort();
+
+    expect(names).toEqual([...EXPECTED_TOOLS].sort());
+  });
+
+  it('gives every tool a description and an input schema', async () => {
+    const { tools } = await client.listTools();
+
+    for (const tool of tools) {
+      expect(tool.description, `${tool.name} has no description`).toBeTruthy();
+      expect(tool.inputSchema, `${tool.name} has no inputSchema`).toBeTruthy();
+    }
+  });
+
+  it('exposes resources', async () => {
+    const { resources } = await client.listResources();
+
+    expect(resources.length).toBeGreaterThan(0);
+    for (const resource of resources) {
+      expect(resource.uri).toMatch(/^postgres:\/\//);
+    }
+  });
+
+  it('exposes prompts and renders one without touching the database', async () => {
+    const { prompts } = await client.listPrompts();
+    expect(prompts.length).toBeGreaterThan(0);
+
+    const result = await client.getPrompt({ name: 'explore_database', arguments: {} });
+    expect(result.messages.length).toBeGreaterThan(0);
+  });
+
+  it('reports an unknown tool as a tool error rather than throwing', async () => {
+    // Failures come back as isError so the model can read and recover from them,
+    // instead of surfacing as a protocol-level error.
+    const result = await client.callTool({ name: 'no_such_tool', arguments: {} });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it('reports its version', () => {
+    expect(client.getServerVersion()).toMatchObject({ name: 'postgres-mcp', version: VERSION });
+  });
+});

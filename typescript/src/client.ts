@@ -6,11 +6,10 @@
 
 import pg from 'pg';
 import { getConnectionConfig, getSettings } from './settings.js';
-import { validateQuery, validateIdentifier, escapeLikePattern, SQLValidationError } from './security.js';
+import { validateQuery, validateIdentifier, escapeLikePattern } from './security.js';
 import type {
   SchemaInfo,
   TableInfo,
-  ColumnInfo,
   TableDescription,
   IndexInfo,
   ConstraintInfo,
