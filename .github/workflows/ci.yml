@@ -55,7 +55,7 @@ jobs:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
           POSTGRES_DB: test
-        run: uv run pytest -v --cov=postgres_mcp --cov-report=term-missing --cov-report=xml
+        run: uv run pytest -v --run-integration --cov=postgres_mcp --cov-report=term-missing --cov-report=xml
       
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'

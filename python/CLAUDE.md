@@ -32,7 +32,7 @@ uv publish
 
 The codebase has a modular architecture:
 
-- **`postgres_mcp/server.py`**: FastMCP server that defines all MCP tools, prompts, and resources. Each tool is a decorated function (`@mcp.tool()`) that wraps PostgresClient methods.
+- **`postgres_mcp/server.py`**: MCP SDK v2 server that defines all MCP tools, prompts, and resources. Each tool is a decorated function (`@mcp.tool()`) that wraps PostgresClient methods.
 
 - **`postgres_mcp/__version__.py`**: Centralized version management.
 

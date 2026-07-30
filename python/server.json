@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.JaviMaligno/postgresql",
   "title": "PostgreSQL MCP Server",
-  "description": "MCP server for PostgreSQL database operations. Provides 14 tools for querying databases, exploring schemas, analyzing tables, with security-first design including SQL injection prevention and read-only by default.",
+  "description": "MCP server for PostgreSQL database operations. Provides 15 tools for querying databases, exploring schemas, analyzing tables, with security-first design including SQL injection prevention and read-only by default.",
   "repository": {
     "url": "https://github.com/JaviMaligno/postgres_mcp",
     "source": "github"
