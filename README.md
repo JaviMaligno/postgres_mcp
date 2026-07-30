@@ -80,6 +80,45 @@ claude mcp add postgres -s user \
 | `QUERY_TIMEOUT` | | 30 | Query timeout (seconds) |
 | `MAX_ROWS` | | 1000 | Maximum rows returned |
 
+### Multiple databases (TypeScript only, for now)
+
+Most real work touches more than one database. Instead of editing this config and
+restarting your client every time, declare several connections and pick one per
+call by **alias**:
+
+```jsonc
+POSTGRES_CONNECTIONS='[
+  {"alias":"local","host":"localhost","user":"me","password":"…","database":"app","allowWrite":true},
+  {"alias":"staging","url":"postgresql://reader:…@staging.example.com:5432/app"},
+  {"alias":"analytics","url":"postgresql://reader:…@warehouse:6543/metrics?sslmode=require","default":true}
+]'
+```
+
+- **`list_databases`** returns the configured aliases with host, database name,
+  write permission and which is the default. **Credentials are never returned.**
+- Every other tool takes an optional **`database`** argument naming an alias.
+  Omit it and you get the default connection — so an existing single-database
+  setup keeps working with no changes at all.
+- **`allowWrite` is per connection**, falling back to `ALLOW_WRITE_OPERATIONS`.
+  A production replica stays read-only while a local database allows writes.
+- `default: true` marks the connection used when `database` is omitted;
+  otherwise it is the first one declared. At most one connection may be marked
+  default.
+- Each connection accepts either discrete fields (`host`, `port`, `user`,
+  `password`, `database`, `sslmode`) or a `url` DSN — and discrete fields
+  override the DSN, so you can reuse a URL and change one part of it.
+- One pool per alias, opened lazily: a configured but unused database never
+  opens a socket.
+
+`POSTGRES_CONNECTIONS` and the plain `POSTGRES_*` variables are **mutually
+exclusive**. When the first is set the others are ignored, so there is never a
+question about which one won.
+
+> **Credentials only ever come from the environment.** The `database` argument
+> names an alias; there is deliberately no way to pass a host, user, password or
+> connection string as a tool argument, because that would put secrets into the
+> conversation. A test enforces this.
+
 ### Claude Code CLI
 
 ```bash
@@ -122,7 +161,10 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-## Available Tools (14 total)
+## Available Tools (15 total)
+
+Every tool below except `list_databases` accepts an optional `database` argument
+naming a configured connection — see [Multiple databases](#multiple-databases-typescript-only-for-now).
 
 ### Query Execution
 | Tool | Description |
@@ -153,6 +195,7 @@ Add to `~/.cursor/mcp.json`:
 |------|-------------|
 | `get_database_info` | Get database version and connection info |
 | `search_columns` | Search for columns by name across all tables |
+| `list_databases` | List the configured connections by alias, with host, database, write permission and which is the default. Never returns credentials. |
 
 ## MCP Prompts
 

@@ -5,7 +5,7 @@
  */
 
 import pg from 'pg';
-import { getConnectionConfig, getSettings } from './settings.js';
+import { getConnectionConfig, getSettings, resolveAlias } from './settings.js';
 import { validateQuery, validateIdentifier, escapeLikePattern } from './security.js';
 import type {
   SchemaInfo,
@@ -36,14 +36,20 @@ export class PostgresClientError extends Error {
 }
 
 /**
- * PostgreSQL database client
+ * PostgreSQL database client — one per configured connection.
  */
 export class PostgresClient {
   private pool: pg.Pool;
+  /** Which configured connection this client talks to. */
+  readonly alias: string;
+  /** Write permission for this connection specifically, not globally. */
+  readonly allowWrite: boolean;
 
-  constructor() {
-    const config = getConnectionConfig();
-    this.pool = new Pool(config);
+  constructor(alias?: string) {
+    const connection = resolveAlias(alias);
+    this.alias = connection.alias;
+    this.allowWrite = connection.allowWrite;
+    this.pool = new Pool(getConnectionConfig(connection.alias));
   }
 
   /**
@@ -491,26 +497,33 @@ export class PostgresClient {
   }
 }
 
-// Singleton instance
-let clientInstance: PostgresClient | null = null;
+// One client (and therefore one pool) per connection alias, created lazily.
+// A configured-but-unused database never opens a socket.
+const clients = new Map<string, PostgresClient>();
 
 /**
- * Get or create the PostgresClient singleton
+ * Get or create the client for a connection alias (the default when omitted).
+ *
+ * Throws for an unknown alias, with the valid ones listed — see resolveAlias.
  */
-export function getClient(): PostgresClient {
-  if (!clientInstance) {
-    clientInstance = new PostgresClient();
+export function getClient(alias?: string): PostgresClient {
+  const resolved = resolveAlias(alias).alias;
+
+  let client = clients.get(resolved);
+  if (!client) {
+    client = new PostgresClient(resolved);
+    clients.set(resolved, client);
   }
-  return clientInstance;
+  return client;
 }
 
 /**
- * Reset the client singleton (useful for testing)
+ * Close and forget every client (useful for testing)
  */
 export function resetClient(): void {
-  if (clientInstance) {
-    clientInstance.close();
-    clientInstance = null;
+  for (const client of clients.values()) {
+    client.close();
   }
+  clients.clear();
 }
 

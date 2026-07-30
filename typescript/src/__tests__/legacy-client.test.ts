@@ -58,8 +58,10 @@ describe('a 2025-era (SDK v1) client', () => {
   it('lists tools over the legacy protocol', async () => {
     const { tools } = await client.listTools();
 
-    expect(tools.length).toBe(14);
+    expect(tools.length).toBe(15);
     expect(tools.map((t) => t.name)).toContain('list_schemas');
+    // Multi-database works for legacy clients too — nothing about it needs 2026.
+    expect(tools.map((t) => t.name)).toContain('list_databases');
   });
 
   it('lists prompts and resources over the legacy protocol', async () => {

@@ -5,13 +5,14 @@
 import { Tool } from '@modelcontextprotocol/server';
 
 import { getClient } from './client.js';
-import { getSettings } from './settings.js';
+import { getSettings, listConnections } from './settings.js';
 import { formatBytes, formatCount, notFoundResponse, formatTimestamp } from './utils.js';
 
 /**
- * All tool definitions for the MCP server
+ * Tools that operate on a database. Every one of them gets an optional
+ * `database` argument added below — do not add it by hand here.
  */
-export const toolDefinitions: Tool[] = [
+const databaseToolDefinitions: Tool[] = [
   // Query tools
   {
     name: 'query',
@@ -26,7 +27,7 @@ export const toolDefinitions: Tool[] = [
   },
   {
     name: 'execute',
-    description: 'Execute a write SQL statement (INSERT, UPDATE, DELETE). WARNING: This tool modifies data. Only available if ALLOW_WRITE_OPERATIONS=true is set.',
+    description: 'Execute a write SQL statement (INSERT, UPDATE, DELETE). WARNING: This tool modifies data. Available only when writes are enabled globally or for the selected database.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -181,6 +182,53 @@ export const toolDefinitions: Tool[] = [
 ];
 
 /**
+ * The `database` argument, added to every database tool.
+ *
+ * It names a configured connection. It deliberately cannot carry a host, user
+ * or password: credentials come from the environment only, so they never end up
+ * in the conversation.
+ */
+const DATABASE_ARG = {
+  type: 'string',
+  description:
+    'Alias of the configured database to run against. Omit to use the default connection. Call list_databases to see which aliases exist.',
+};
+
+/** Adds the `database` argument to a tool, leaving everything else alone. */
+function withDatabaseArg(tool: Tool): Tool {
+  return {
+    ...tool,
+    inputSchema: {
+      ...tool.inputSchema,
+      properties: {
+        ...(tool.inputSchema.properties ?? {}),
+        database: DATABASE_ARG,
+      },
+    },
+  };
+}
+
+/**
+ * All tool definitions for the MCP server.
+ *
+ * `list_databases` is not a database tool — it reads configuration, works with
+ * every server unreachable, and takes no `database` argument of its own.
+ */
+export const toolDefinitions: Tool[] = [
+  ...databaseToolDefinitions.map(withDatabaseArg),
+  {
+    name: 'list_databases',
+    description:
+      'List the databases this server is configured to reach, by alias, with their host, database name, whether writes are allowed, and which one is the default. Credentials are never returned. Call this first when the user mentions a database by name, then pass the alias as the "database" argument of any other tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+];
+
+/**
  * Handle tool calls.
  *
  * Returns `object` rather than `Record<string, unknown>` because several cases
@@ -192,7 +240,20 @@ export async function handleToolCall(
   name: string,
   args: Record<string, unknown>
 ): Promise<object> {
-  const client = getClient();
+  // Answered without a database connection, so it still works when a
+  // configured server is unreachable.
+  if (name === 'list_databases') {
+    const connections = listConnections();
+    return {
+      connections,
+      default: connections.find((c) => c.isDefault)?.alias,
+      hint: 'Pass an alias as the "database" argument of any other tool. Omit it to use the default.',
+    };
+  }
+
+  // An unknown alias throws here, with the valid ones named in the message, and
+  // handleToolCall's caller turns that into an isError result the model can read.
+  const client = getClient(args.database as string | undefined);
   const settings = getSettings();
 
   switch (name) {
@@ -210,10 +271,14 @@ export async function handleToolCall(
     }
 
     case 'execute': {
-      if (!settings.allowWriteOperations) {
+      // Per connection, not global: a read-only replica stays read-only even
+      // when the local database next to it allows writes.
+      if (!client.allowWrite) {
         return {
           success: false,
-          error: 'Write operations are disabled. Set ALLOW_WRITE_OPERATIONS=true to enable.',
+          error:
+            `Write operations are disabled for database "${client.alias}". ` +
+            'Set ALLOW_WRITE_OPERATIONS=true, or "allowWrite": true on that connection, to enable.',
         };
       }
       const result = await client.executeQuery(args.sql as string, undefined, {
