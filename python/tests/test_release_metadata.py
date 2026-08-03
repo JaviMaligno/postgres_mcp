@@ -1,6 +1,10 @@
 import json
-import tomllib
 from pathlib import Path
+
+try:  # tomllib is stdlib from 3.11; the project still supports 3.10
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - only taken on Python 3.10
+    import tomli as tomllib
 
 from postgres_mcp.__version__ import __version__
 
