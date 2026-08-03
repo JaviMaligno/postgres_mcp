@@ -21,9 +21,10 @@ This repository contains both **TypeScript** and **Python** implementations:
 > **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
 
 > **Protocol compatibility**: both servers speak the
-> [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) revision and is
+> [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) revision and are
 > **dual-era** — clients that still open with the 2025-era `initialize` handshake are served
-> exactly as before, so no client needs upgrading. Requires Node.js 20+.
+> exactly as before, so no client needs upgrading. The TypeScript package requires Node.js 20+;
+> the Python package requires Python 3.10+.
 
 ## Features
 

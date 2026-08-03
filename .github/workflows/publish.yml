@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
       
+      - name: Validate server.json
+        run: uv run python scripts/validate_server_manifest.py ../server.json
+
       - name: Run tests
         env:
           POSTGRES_HOST: localhost
@@ -45,7 +48,7 @@ jobs:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
           POSTGRES_DB: test
-        run: uv run pytest -v
+        run: uv run pytest -v --run-integration
 
   publish:
     needs: test

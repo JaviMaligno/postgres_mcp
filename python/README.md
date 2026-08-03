@@ -1,5 +1,7 @@
 # postgresql-mcp (Python)
 
+<!-- mcp-name: io.github.JaviMaligno/postgresql -->
+
 MCP server for PostgreSQL database operations. Works with Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
 
 This is the **Python** implementation. A TypeScript implementation with the same

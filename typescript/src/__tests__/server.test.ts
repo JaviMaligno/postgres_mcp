@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server/stdio';
 
 import { createServer, VERSION } from '../server.js';
 
@@ -38,17 +39,22 @@ const DATABASE_TOOLS = EXPECTED_TOOLS.filter((t) => t !== 'list_databases');
 
 describe('MCP server', () => {
   let client: Client;
+  let serverHandle: StdioServerHandle;
 
   beforeAll(async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const server = createServer();
-    client = new Client({ name: 'test-client', version: '1.0.0' });
+    serverHandle = serveStdio(() => createServer(), { transport: serverTransport });
+    client = new Client(
+      { name: 'test-client', version: '1.0.0' },
+      { versionNegotiation: { mode: 'auto' } }
+    );
 
-    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    await client.connect(clientTransport);
   });
 
   afterAll(async () => {
     await client.close();
+    await serverHandle.close();
   });
 
   it('advertises every tool, and only those', async () => {
@@ -127,5 +133,15 @@ describe('MCP server', () => {
 
   it('reports its version', () => {
     expect(client.getServerVersion()).toMatchObject({ name: 'postgres-mcp', version: VERSION });
+  });
+
+  it('negotiates the modern MCP protocol and discovery metadata', async () => {
+    const result = await client.listTools();
+
+    expect(client.getProtocolEra()).toBe('modern');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+    expect(client.getDiscoverResult()?.supportedVersions).toContain('2026-07-28');
+    expect(result.ttlMs).toBe(0);
+    expect(result.cacheScope).toBe('private');
   });
 });
