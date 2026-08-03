@@ -12,7 +12,7 @@ from postgres_mcp.__version__ import __version__
 ROOT = Path(__file__).resolve().parents[2]
 SERVER_NAME = "io.github.JaviMaligno/postgresql"
 RELEASE_VERSION = "1.1.0"
-NPM_PACKAGE = "@javimaligno/postgresql-mcp"
+NPM_PACKAGE = "@javiagui/postgresql-mcp"
 PYPI_PACKAGE = "postgresql-mcp"
 
 
