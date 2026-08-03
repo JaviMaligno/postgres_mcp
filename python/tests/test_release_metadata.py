@@ -12,6 +12,8 @@ from postgres_mcp.__version__ import __version__
 ROOT = Path(__file__).resolve().parents[2]
 SERVER_NAME = "io.github.JaviMaligno/postgresql"
 RELEASE_VERSION = "1.1.0"
+NPM_PACKAGE = "@javimaligno/postgresql-mcp"
+PYPI_PACKAGE = "postgresql-mcp"
 
 
 def test_package_versions_and_registry_ownership_are_aligned():
@@ -25,6 +27,8 @@ def test_package_versions_and_registry_ownership_are_aligned():
 
     assert __version__ == RELEASE_VERSION
     assert pyproject["project"]["version"] == RELEASE_VERSION
+    assert package_json["name"] == NPM_PACKAGE
+    assert package_json["publishConfig"]["access"] == "public"
     assert package_json["version"] == RELEASE_VERSION
     assert package_json["mcpName"] == SERVER_NAME
     assert f"<!-- mcp-name: {SERVER_NAME} -->" in python_readme
@@ -44,8 +48,11 @@ def test_root_manifest_describes_both_packages_and_multidatabase_configuration()
 
     packages = {package["registryType"]: package for package in manifest["packages"]}
     assert set(packages) == {"npm", "pypi"}
+    # The unscoped npm name postgresql-mcp belongs to an unrelated project, so
+    # the TypeScript package ships under this account's scope. PyPI is ours.
+    assert packages["npm"]["identifier"] == NPM_PACKAGE
+    assert packages["pypi"]["identifier"] == PYPI_PACKAGE
     for package in packages.values():
-        assert package["identifier"] == "postgresql-mcp"
         assert package["version"] == RELEASE_VERSION
         variables = {
             variable["name"]: variable for variable in package["environmentVariables"]

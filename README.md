@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviMaligno/postgres_mcp/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/postgresql-mcp.svg)](https://pypi.org/project/postgresql-mcp/)
-[![npm version](https://badge.fury.io/js/postgresql-mcp.svg)](https://www.npmjs.com/package/postgresql-mcp)
+[![npm version](https://badge.fury.io/js/@javimaligno%2Fpostgresql-mcp.svg)](https://www.npmjs.com/package/@javimaligno/postgresql-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 MCP server for PostgreSQL database operations. Works with Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
@@ -15,7 +15,7 @@ This repository contains both **TypeScript** and **Python** implementations:
 
 | Version | Directory | Status | MCP protocol | Installation |
 |---------|-----------|--------|--------------|--------------|
-| **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `2026-07-28` (SDK v2) | `npm install -g postgresql-mcp` |
+| **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `2026-07-28` (SDK v2) | `npm install -g @javimaligno/postgresql-mcp` |
 | Python | `/python` | ✅ Stable | `2026-07-28` (SDK v2) | `pipx install postgresql-mcp` |
 
 > **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
@@ -42,10 +42,10 @@ This repository contains both **TypeScript** and **Python** implementations:
 
 ```bash
 # Install globally
-npm install -g postgresql-mcp
+npm install -g @javimaligno/postgresql-mcp
 
 # Or run directly with npx
-npx postgresql-mcp
+npx @javimaligno/postgresql-mcp
 ```
 
 ### Python
@@ -129,7 +129,7 @@ claude mcp add postgres -s user \
   -e POSTGRES_USER=your_user \
   -e POSTGRES_PASSWORD=your_password \
   -e POSTGRES_DB=your_database \
-  -- npx postgresql-mcp
+  -- npx @javimaligno/postgresql-mcp
 
 # Python version
 claude mcp add postgres -s user \
@@ -149,7 +149,7 @@ Add to `~/.cursor/mcp.json`:
   "mcpServers": {
     "postgres": {
       "command": "npx",
-      "args": ["postgresql-mcp"],
+      "args": ["@javimaligno/postgresql-mcp"],
       "env": {
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432",
@@ -328,7 +328,7 @@ postgresql-mcp  # Should wait for MCP messages
 ## Links
 
 - [PyPI Package](https://pypi.org/project/postgresql-mcp/)
-- [npm Package](https://www.npmjs.com/package/postgresql-mcp)
+- [npm Package](https://www.npmjs.com/package/@javimaligno/postgresql-mcp)
 - [Installation Guide](docs/INSTALLATION.md)
 - [GitHub Repository](https://github.com/JaviMaligno/postgres_mcp)
 
