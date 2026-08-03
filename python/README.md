@@ -6,7 +6,7 @@ MCP server for PostgreSQL database operations. Works with Claude Code, Claude De
 
 This is the **Python** implementation. A TypeScript implementation with the same
 tool set lives in [`/typescript`](https://github.com/JaviMaligno/postgres_mcp/tree/main/typescript)
-and is published to npm as `@javimaligno/postgresql-mcp`.
+and is published to npm as `@javiagui/postgresql-mcp`.
 
 > This file used to be a symlink to the repository root README. That made the
 > published source distribution carry a dangling link, which broke the wheel
