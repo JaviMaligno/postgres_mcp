@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/index.ts
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 // src/settings.ts
 import { z } from "zod";
@@ -1517,9 +1517,9 @@ async function main() {
     console.error("Configuration error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  serveStdio(() => createServer(), {
+    onerror: (error) => console.error("MCP transport error:", error.message)
+  });
   console.error(`PostgreSQL MCP Server v${VERSION} started`);
 }
 main().catch((error) => {

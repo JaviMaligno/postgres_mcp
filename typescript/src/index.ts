@@ -9,7 +9,7 @@
  * without these side effects.
  */
 
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
 import { getSettings } from './settings.js';
 import { createServer, VERSION } from './server.js';
@@ -23,10 +23,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = createServer();
-  const transport = new StdioServerTransport();
-
-  await server.connect(transport);
+  serveStdio(() => createServer(), {
+    onerror: (error) => console.error('MCP transport error:', error.message),
+  });
 
   // Log to stderr so it doesn't interfere with MCP communication on stdout
   console.error(`PostgreSQL MCP Server v${VERSION} started`);

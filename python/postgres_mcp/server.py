@@ -35,7 +35,8 @@ from postgres_mcp.models import (
 
 # Initialize MCP server
 mcp = MCPServer(
-    "postgres",
+    "postgres-mcp",
+    version=__version__,
     instructions=f"PostgreSQL MCP Server v{__version__} - Tools for PostgreSQL database operations",
 )
 
