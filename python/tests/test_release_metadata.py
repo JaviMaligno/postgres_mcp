@@ -65,3 +65,6 @@ def test_publish_workflow_runs_database_tests_and_validates_manifest():
 
     assert "pytest -v --run-integration" in workflow
     assert "Validate server.json" in workflow
+    # --run-integration is worthless without the fixtures those tests query:
+    # the first tagged release failed here because the schema was never seeded.
+    assert "scripts/init_sample_db.sql" in workflow
