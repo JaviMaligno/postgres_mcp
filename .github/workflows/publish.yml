@@ -41,6 +41,11 @@ jobs:
       - name: Validate server.json
         run: uv run python scripts/validate_server_manifest.py ../server.json
 
+      - name: Load sample data into PostgreSQL
+        env:
+          PGPASSWORD: test
+        run: psql -h localhost -U test -d test -f scripts/init_sample_db.sql
+
       - name: Run tests
         env:
           POSTGRES_HOST: localhost
