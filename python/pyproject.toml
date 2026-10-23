@@ -3,7 +3,7 @@ name = "postgresql-mcp"
 version = "1.1.0"
 description = "MCP server for PostgreSQL database operations - query, explore schemas, and analyze tables"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Javier Aguilar", email = "javiecija96@gmail.com"}]
 keywords = ["mcp", "postgresql", "postgres", "database", "claude", "ai", "llm"]
@@ -13,14 +13,13 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mcp>=2.0.0,<3",
+    "mcp>=2.3.0,<3",
     "psycopg2-binary>=2.9.9",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
@@ -43,10 +42,6 @@ dev = [
     "pytest-mock>=3.12",
     "pytest-asyncio>=0.23",
     "jsonschema>=4.26,<5",
-    # tomllib only entered the stdlib in 3.11 and requires-python is >=3.10,
-    # so the release-metadata test needs the backport on the oldest supported
-    # interpreter. CI runs the 3.10 leg, which is where this bites.
-    "tomli>=2.0; python_version < '3.11'",
     # The lint job ran `uv run ruff` without ruff ever being declared, so it
     # died with "Failed to spawn: ruff" — invisible while the step carried
     # continue-on-error. Pinned to a minor range: a newer ruff can add rules

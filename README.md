@@ -23,8 +23,8 @@ This repository contains both **TypeScript** and **Python** implementations:
 > **Protocol compatibility**: both servers speak the
 > [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28) revision and are
 > **dual-era** — clients that still open with the 2025-era `initialize` handshake are served
-> exactly as before, so no client needs upgrading. The TypeScript package requires Node.js 20+;
-> the Python package requires Python 3.10+.
+> exactly as before, so no client needs upgrading. The TypeScript package requires patched Node.js 22.23.4 or 24.22.1;
+> the Python package requires Python 3.11+ (CI uses patched 3.11.17 and 3.12.15).
 
 ## Features
 

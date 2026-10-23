@@ -5,16 +5,22 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-python:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: python
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11.17", "3.12.15"]
     
     services:
       postgres:
@@ -36,12 +42,15 @@ jobs:
       
       - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.13.5"
+          python-version: ${{ matrix.python-version }}
       
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev --python ${{ matrix.python-version }}
       
       - name: Load sample data into PostgreSQL
         env:
@@ -55,25 +64,25 @@ jobs:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
           POSTGRES_DB: test
-        run: uv run pytest -v --run-integration --cov=postgres_mcp --cov-report=term-missing --cov-report=xml
+        run: uv run --frozen --python ${{ matrix.python-version }} pytest -v --run-integration ${{ github.ref == 'refs/heads/main' && '--cov=postgres_mcp --cov-report=term-missing --cov-report=xml' || '' }}
       
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12.15' && github.ref == 'refs/heads/main'
         uses: codecov/codecov-action@v7
         with:
           files: python/coverage.xml
           fail_ci_if_error: false
 
   test-typescript:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: typescript
     strategy:
-      # package.json declares engines >=20, so both ends of that claim get
-      # tested rather than only the newest runtime.
+      # Exercise the two patched supported Node release lines.
       matrix:
-        node-version: ['20', '24']
+        node-version: ['22.23.4', '24.22.1']
     services:
       postgres:
         image: postgres:16
@@ -103,7 +112,7 @@ jobs:
         run: psql -h localhost -U test -d test -f ../python/scripts/init_sample_db.sql
       # No continue-on-error: the TypeScript side has real tests now, so a
       # failure here has to fail the build like the Python one does.
-      - run: npm test
+      - run: node node_modules/vitest/vitest.mjs run --maxWorkers=2
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -121,12 +130,15 @@ jobs:
       
       - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.13.5"
+          python-version: "3.12.15"
       
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.12.15
       
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --frozen --dev
       
       # Both steps used to carry continue-on-error, which made this job report
       # green over 22 lint errors and 13 unformatted files. Those are fixed, so
@@ -140,6 +152,8 @@ jobs:
   build-python:
     runs-on: ubuntu-latest
     needs: test-python
+    # Preserve light Draft/main packaging when tests skip; a failed Ready suite blocks it.
+    if: ${{ !cancelled() && (needs.test-python.result == 'success' || needs.test-python.result == 'skipped') }}
     defaults:
       run:
         working-directory: python
@@ -148,6 +162,9 @@ jobs:
       
       - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "0.13.5"
+          python-version: "3.11.17"
       
       - name: Build package
         run: uv build
@@ -157,3 +174,37 @@ jobs:
         with:
           name: dist
           path: python/dist/
+
+  draft-typescript:
+    # Main retains lint/types/build without repeating the database test matrix.
+    if: (github.event_name == 'pull_request' && github.event.pull_request.draft) || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  verify-docker:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        implementation: [python, typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build local source image without publishing
+        run: docker build -t mcp-local -f ${{ matrix.implementation }}/Dockerfile ${{ matrix.implementation }}
+      - name: Verify Python local distribution
+        if: matrix.implementation == 'python'
+        run: docker run --rm --entrypoint /app/.venv/bin/python mcp-local -c "import importlib.metadata; d = importlib.metadata.distribution('postgresql-mcp'); import json; assert json.loads(d.read_text('direct_url.json'))['url'] == 'file:///app'; print(d.version, importlib.metadata.version('mcp'))"
+      - name: Verify Node runtime
+        if: matrix.implementation == 'typescript'
+        run: docker run --rm --entrypoint node mcp-local -e "if (process.versions.node !== '24.22.1') process.exit(1); console.log(process.versions.node)"

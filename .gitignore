@@ -31,8 +31,7 @@ htmlcov/
 .pytest_cache/
 coverage.xml
 
-# uv
-uv.lock
+# Application dependency locks are versioned for reproducible Docker/CI installs.
 
 # OS
 .DS_Store
