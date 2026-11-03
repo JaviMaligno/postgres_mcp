@@ -7,6 +7,15 @@
 import pg from 'pg';
 import { getConnectionConfig, getSettings, resolveAlias } from './settings.js';
 import { validateQuery, validateIdentifier, escapeLikePattern } from './security.js';
+import {
+  policyEnabled,
+  policyNeedsSources,
+  redactError,
+  redactRows,
+  type ColumnMeta,
+  type RedactionPolicy,
+  type Source,
+} from './redaction.js';
 import type {
   SchemaInfo,
   TableInfo,
@@ -35,6 +44,13 @@ export class PostgresClientError extends Error {
   }
 }
 
+/** Raised instead of returning a result that could not be redacted. */
+class RedactionFailedError extends PostgresClientError {
+  constructor() {
+    super('Query failed: the result was withheld because redaction could not be applied');
+  }
+}
+
 /**
  * PostgreSQL database client — one per configured connection.
  */
@@ -44,11 +60,14 @@ export class PostgresClient {
   readonly alias: string;
   /** Write permission for this connection specifically, not globally. */
   readonly allowWrite: boolean;
+  /** What to redact from this connection's results. */
+  readonly redaction: RedactionPolicy;
 
   constructor(alias?: string) {
     const connection = resolveAlias(alias);
     this.alias = connection.alias;
     this.allowWrite = connection.allowWrite;
+    this.redaction = connection.redaction;
     this.pool = new Pool(getConnectionConfig(connection.alias));
   }
 
@@ -76,25 +95,51 @@ export class PostgresClient {
     const validatedQuery = validateQuery(query, allowWrite);
 
     const client = await this.pool.connect();
+    let inTransaction = false;
+    // Set when a ROLLBACK fails: that connection must not go back to the pool
+    // with a transaction still open.
+    let broken = false;
     try {
-      const result = await client.query(validatedQuery, params);
+      if (!allowWrite && policyEnabled(this.redaction)) {
+        // With redaction on, reads run in a READ ONLY transaction: SELECT ...
+        // INTO TEMP could otherwise create a table that shadows an allowed
+        // one. Only then, so that setups without redaction keep functions like
+        // nextval() working in `query`.
+        await client.query('BEGIN READ ONLY');
+        inTransaction = true;
+      }
+      const result = await this.runStatement(client, validatedQuery, params);
 
       // Check if it's a SELECT query
       const isSelect = validatedQuery.toUpperCase().trim().startsWith('SELECT');
 
+      let response: QueryResult;
       if (isSelect) {
         const rows = result.rows.slice(0, maxRows);
         const truncated = result.rows.length > maxRows;
-
-        return {
+        response = {
           success: true,
           rows,
           row_count: rows.length,
           columns: result.fields?.map(f => f.name) || [],
           truncated,
         };
+
+        if (policyEnabled(this.redaction)) {
+          try {
+            const meta = await this.columnSources(client, result.fields ?? []);
+            const redacted = redactRows(rows, meta, this.redaction);
+            response.rows = redacted.rows;
+            response.redacted = redacted.counts;
+          } catch (error) {
+            // Fail closed: an unredacted result never goes out, and neither
+            // does an error that might quote it.
+            console.error(`Redaction failed: ${(error as Error)?.name ?? 'unknown'}`);
+            throw new RedactionFailedError();
+          }
+        }
       } else {
-        return {
+        response = {
           success: true,
           rows: [],
           row_count: result.rowCount || 0,
@@ -102,12 +147,87 @@ export class PostgresClient {
           message: `${result.rowCount} rows affected`,
         };
       }
+      if (inTransaction) {
+        await client.query('COMMIT');
+        inTransaction = false;
+      }
+      return response;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      throw new PostgresClientError(`Query failed: ${message}`);
+      if (inTransaction) {
+        await client.query('ROLLBACK').catch(() => {
+          broken = true;
+        });
+      }
+      if (error instanceof RedactionFailedError) throw error;
+      throw new PostgresClientError(`Query failed: ${this.errorText(error)}`);
     } finally {
-      client.release();
+      client.release(broken);
     }
+  }
+
+  /**
+   * Run the caller's SQL. With redaction on it goes over the extended
+   * protocol, where PostgreSQL itself refuses more than one command: otherwise
+   * "SELECT 1; COMMIT; UPDATE ..." would end the READ ONLY transaction from
+   * inside the string. (@types/pg does not declare queryMode, hence the cast.)
+   */
+  private runStatement(client: pg.PoolClient, text: string, params?: unknown[]) {
+    if (!policyEnabled(this.redaction)) return client.query(text, params);
+    return client.query({ text, values: params, queryMode: 'extended' } as pg.QueryConfig);
+  }
+
+  /**
+   * An error as the model may see it. node-postgres puts only the primary
+   * message in `message` (DETAIL and CONTEXT live in other fields, never read
+   * here) and the SQLSTATE in `code`.
+   */
+  private errorText(error: unknown): string {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    const code = (error as { code?: unknown } | null)?.code;
+    return redactError(message, this.redaction, typeof code === 'string' ? code : undefined);
+  }
+
+  /**
+   * Resolve each result column to the table column it was read from.
+   *
+   * PostgreSQL reports a table OID and attribute number per result column when
+   * the value is a plain column reference (also through aliases, subqueries,
+   * CTEs and joins); expressions, aggregates and UNIONs report none. Attribute
+   * number 0 is a whole-row reference.
+   */
+  private async columnSources(
+    client: pg.PoolClient,
+    fields: Array<{ name: string; tableID: number; columnID: number }>
+  ): Promise<ColumnMeta[]> {
+    const oids = [...new Set(fields.map((f) => f.tableID).filter((oid) => oid))];
+    const catalog = new Map<number, Map<number, Source>>();
+    if (oids.length > 0 && policyNeedsSources(this.redaction)) {
+      const result = await client.query(
+        `SELECT a.attrelid::bigint AS oid, a.attnum, n.nspname, c.relname, a.attname
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
+           -- A temporary table can shadow a permanent one of the same name,
+           -- so it is never a trusted source.
+           AND c.relpersistence <> 't'`,
+        [oids]
+      );
+      for (const row of result.rows) {
+        // bigint arrives as a string from node-postgres.
+        const oid = Number(row.oid);
+        if (!catalog.has(oid)) catalog.set(oid, new Map());
+        catalog.get(oid)!.set(Number(row.attnum), [row.nspname, row.relname, row.attname]);
+      }
+    }
+    return fields.map((field) => {
+      const table = catalog.get(field.tableID) ?? new Map<number, Source>();
+      return {
+        name: field.name,
+        source: field.columnID > 0 ? (table.get(field.columnID) ?? null) : null,
+        rowOf: field.tableID && field.columnID === 0 ? [...table.values()] : null,
+      };
+    });
   }
 
   /**
@@ -124,18 +244,30 @@ export class PostgresClient {
     explainCmd += `) ${query}`;
 
     const client = await this.pool.connect();
+    const readOnly = policyEnabled(this.redaction);
+    let broken = false;
     try {
-      const result = await client.query(explainCmd);
-      if (result.rows.length > 0) {
-        const plan = Object.values(result.rows[0])[0];
-        return { success: true, plan };
+      // EXPLAIN ANALYZE executes the statement (see executeQuery).
+      if (readOnly) await client.query('BEGIN READ ONLY');
+      try {
+        const result = await this.runStatement(client, explainCmd);
+        if (result.rows.length > 0) {
+          const plan = Object.values(result.rows[0])[0];
+          return { success: true, plan };
+        }
+        return { success: false, error: 'No plan returned' };
+      } finally {
+        if (readOnly) {
+          await client.query('ROLLBACK').catch(() => {
+            broken = true;
+          });
+        }
       }
-      return { success: false, error: 'No plan returned' };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return { success: false, error: message };
+      // EXPLAIN ANALYZE runs the query, so its errors can echo values.
+      return { success: false, error: this.errorText(error) };
     } finally {
-      client.release();
+      client.release(broken);
     }
   }
 

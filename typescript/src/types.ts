@@ -136,6 +136,8 @@ export interface QueryResult {
   columns: string[];
   truncated?: boolean;
   message?: string;
+  /** Present when a redaction policy is active: masked values by kind. */
+  redacted?: Record<string, number>;
 }
 
 export interface ExplainResult {

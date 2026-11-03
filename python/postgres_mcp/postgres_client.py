@@ -22,8 +22,24 @@ from postgres_mcp.settings import (
 from postgres_mcp.security import (
     validate_query,
 )
+from postgres_mcp.redaction import redact_error, redact_rows
 
 logger = logging.getLogger(__name__)
+
+
+def _primary_message(error: psycopg2.Error) -> str:
+    """The error's primary message, without the DETAIL, HINT or CONTEXT lines
+    that str(error) appends (they quote row values)."""
+    diag = getattr(error, "diag", None)
+    primary = getattr(diag, "message_primary", None)
+    if primary:
+        return primary
+    return _first_line(error)
+
+
+def _first_line(error: Exception) -> str:
+    lines = str(error).strip().splitlines()
+    return lines[0] if lines else type(error).__name__
 
 
 class PostgresClientError(Exception):
@@ -60,11 +76,13 @@ class PostgresClient:
                 sslmode=settings.postgres_sslmode,
                 allow_write=settings.allow_write_operations,
                 is_default=True,
+                redaction=settings.redaction_policy(),
             )
         else:
             self.connection = resolve_connection(alias)
         self.alias = self.connection.alias
         self.allow_write = self.connection.allow_write
+        self.redaction = self.connection.redaction
         self._connection: Optional[psycopg2.extensions.connection] = None
 
     @contextmanager
@@ -131,6 +149,12 @@ class PostgresClient:
         max_rows = max_rows or self.settings.max_rows
 
         with self.get_connection() as conn:
+            if not allow_write and self.redaction.enabled:
+                # With redaction on, reads run in a READ ONLY transaction:
+                # SELECT ... INTO TEMP could otherwise create a table that
+                # shadows an allowed one. Only then, so that setups without
+                # redaction keep functions like nextval() working in `query`.
+                conn.set_session(readonly=True)
             cursor = conn.cursor()
 
             try:
@@ -145,19 +169,32 @@ class PostgresClient:
                     if truncated:
                         rows = rows[:max_rows]
 
-                    columns = (
-                        [desc[0] for desc in cursor.description]
-                        if cursor.description
-                        else []
-                    )
+                    description = cursor.description or []
+                    columns = [desc[0] for desc in description]
+                    result_rows = [dict(row) for row in rows]
 
-                    return {
+                    response = {
                         "success": True,
-                        "rows": [dict(row) for row in rows],
+                        "rows": result_rows,
                         "row_count": len(rows),
                         "columns": columns,
                         "truncated": truncated,
                     }
+                    if self.redaction.enabled:
+                        try:
+                            meta = self._column_sources(cursor, description)
+                            response["rows"], response["redacted"] = redact_rows(
+                                result_rows, meta, self.redaction
+                            )
+                        except Exception as e:
+                            # Fail closed: an unredacted result never goes out,
+                            # and neither does an error that might quote it.
+                            logger.error("Redaction failed: %s", type(e).__name__)
+                            raise PostgresClientError(
+                                "Query failed: the result was withheld because "
+                                "redaction could not be applied"
+                            ) from None
+                    return response
                 else:
                     conn.commit()
                     return {
@@ -169,9 +206,76 @@ class PostgresClient:
                     }
             except psycopg2.Error as e:
                 conn.rollback()
-                raise PostgresClientError(f"Query failed: {e}") from e
+                if not self.redaction.enabled:
+                    raise PostgresClientError(f"Query failed: {e}") from e
+                message = redact_error(_primary_message(e), self.redaction, e.pgcode)
+                raise PostgresClientError(f"Query failed: {message}") from None
+            except PostgresClientError:
+                raise
+            except Exception as e:
+                # Anything else goes through the same filter, as in TypeScript.
+                if not self.redaction.enabled:
+                    raise
+                conn.rollback()
+                message = redact_error(_first_line(e), self.redaction)
+                raise PostgresClientError(f"Query failed: {message}") from None
             finally:
                 cursor.close()
+
+    def _column_sources(self, cursor, description) -> list[dict[str, Any]]:
+        """Resolve each result column to the table column it was read from.
+
+        PostgreSQL reports a table OID and attribute number per result column
+        when the value is a plain column reference (also through aliases,
+        subqueries, CTEs and joins); expressions, aggregates and UNIONs report
+        none. Attribute number 0 is a whole-row reference.
+        """
+        base = [
+            {
+                "name": desc[0],
+                "oid": getattr(desc, "table_oid", None),
+                "attnum": getattr(desc, "table_column", None),
+            }
+            for desc in description
+        ]
+        oids = sorted({c["oid"] for c in base if c["oid"]})
+        catalog: dict[int, dict[int, tuple[str, str, str]]] = {}
+        if oids and self.redaction.needs_sources:
+            cursor.execute(
+                """
+                SELECT a.attrelid::bigint AS oid, a.attnum, n.nspname, c.relname,
+                       a.attname
+                FROM pg_attribute a
+                JOIN pg_class c ON c.oid = a.attrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE a.attrelid = ANY(%s::oid[]) AND a.attnum > 0
+                  AND NOT a.attisdropped
+                  -- A temporary table can shadow a permanent one of the same
+                  -- name, so it is never a trusted source.
+                  AND c.relpersistence <> 't'
+                """,
+                (oids,),
+            )
+            for row in cursor.fetchall():
+                catalog.setdefault(row["oid"], {})[row["attnum"]] = (
+                    row["nspname"],
+                    row["relname"],
+                    row["attname"],
+                )
+        meta = []
+        for column in base:
+            table = catalog.get(column["oid"] or 0, {})
+            attnum = column["attnum"] or 0
+            meta.append(
+                {
+                    "name": column["name"],
+                    "source": table.get(attnum) if attnum > 0 else None,
+                    "row_of": list(table.values())
+                    if column["oid"] and attnum == 0
+                    else None,
+                }
+            )
+        return meta
 
     def explain_query(self, query: str, analyze: bool = False) -> dict[str, Any]:
         """Get EXPLAIN plan for a query.
@@ -191,9 +295,30 @@ class PostgresClient:
             explain_cmd += ", ANALYZE, BUFFERS"
         explain_cmd += f") {validated_query}"
 
-        with self.get_cursor() as cursor:
-            cursor.execute(explain_cmd)
-            result = cursor.fetchone()
+        with self.get_connection() as conn:
+            if self.redaction.enabled:
+                # EXPLAIN ANALYZE executes the statement (see execute_query).
+                conn.set_session(readonly=True)
+            cursor = conn.cursor()
+            try:
+                try:
+                    cursor.execute(explain_cmd)
+                except psycopg2.Error as e:
+                    # EXPLAIN ANALYZE runs the query, so its errors can echo values.
+                    if not self.redaction.enabled:
+                        raise
+                    message = redact_error(
+                        _primary_message(e), self.redaction, e.pgcode
+                    )
+                    raise PostgresClientError(f"Query failed: {message}") from None
+                except Exception as e:
+                    if not self.redaction.enabled:
+                        raise
+                    message = redact_error(_first_line(e), self.redaction)
+                    raise PostgresClientError(f"Query failed: {message}") from None
+                result = cursor.fetchone()
+            finally:
+                cursor.close()
 
             if result:
                 plan = list(result.values())[0]

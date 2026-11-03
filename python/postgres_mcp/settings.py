@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from postgres_mcp.redaction import RedactionPolicy, parse_column_rules
+
 SSLMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
 SSL_MODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 DEFAULT_ALIAS = "default"
@@ -41,6 +43,18 @@ class Settings(BaseSettings):
     max_rows: int = 1000
     pool_min_size: int = 1
     pool_max_size: int = 10
+
+    # Personal-data redaction defaults; each connection may override them.
+    redact_pii: bool = False
+    redact_columns: str = ""
+    allowed_columns: str = ""
+
+    def redaction_policy(self) -> RedactionPolicy:
+        return RedactionPolicy(
+            pii=self.redact_pii,
+            columns=parse_column_rules(self.redact_columns, "REDACT_COLUMNS"),
+            allowed=parse_column_rules(self.allowed_columns, "ALLOWED_COLUMNS"),
+        )
 
     @field_validator("postgres_port", mode="after")
     @classmethod
@@ -102,6 +116,7 @@ class Connection:
     sslmode: SSLMode
     allow_write: bool
     is_default: bool
+    redaction: RedactionPolicy = RedactionPolicy()
 
     def get_connection_dict(self, query_timeout: int) -> dict:
         return {
@@ -149,7 +164,28 @@ def _dsn_fields(alias: str, value: str) -> dict[str, object]:
     }
 
 
-def _connection_from_item(item: object, default_write: bool) -> Connection:
+def _redaction_from_item(
+    item: dict, alias: str, default: RedactionPolicy
+) -> RedactionPolicy:
+    pii = item.get("redactPii", default.pii)
+    if not isinstance(pii, bool):
+        raise ValueError(f'Connection "{alias}" redactPii must be boolean')
+    columns = default.columns
+    if "redactColumns" in item:
+        columns = parse_column_rules(
+            item["redactColumns"], f'Connection "{alias}" redactColumns'
+        )
+    allowed = default.allowed
+    if "allowedColumns" in item:
+        allowed = parse_column_rules(
+            item["allowedColumns"], f'Connection "{alias}" allowedColumns'
+        )
+    return RedactionPolicy(pii=pii, columns=columns, allowed=allowed)
+
+
+def _connection_from_item(
+    item: object, default_write: bool, default_redaction: RedactionPolicy
+) -> Connection:
     if not isinstance(item, dict):
         raise ValueError("Each POSTGRES_CONNECTIONS entry must be an object")
     alias = item.get("alias")
@@ -198,6 +234,7 @@ def _connection_from_item(item: object, default_write: bool) -> Connection:
         sslmode=sslmode,
         allow_write=allow_write,
         is_default=is_default,
+        redaction=_redaction_from_item(item, alias, default_redaction),
     )
 
 
@@ -222,6 +259,7 @@ def get_connections() -> tuple[Connection, ...]:
                 sslmode=settings.postgres_sslmode,
                 allow_write=settings.allow_write_operations,
                 is_default=True,
+                redaction=settings.redaction_policy(),
             ),
         )
 
@@ -234,8 +272,10 @@ def get_connections() -> tuple[Connection, ...]:
     if not parsed:
         raise ValueError("POSTGRES_CONNECTIONS is empty")
 
+    default_redaction = settings.redaction_policy()
     connections = tuple(
-        _connection_from_item(item, settings.allow_write_operations) for item in parsed
+        _connection_from_item(item, settings.allow_write_operations, default_redaction)
+        for item in parsed
     )
     aliases = [connection.alias for connection in connections]
     duplicates = sorted({alias for alias in aliases if aliases.count(alias) > 1})
@@ -258,6 +298,7 @@ def get_connections() -> tuple[Connection, ...]:
             sslmode=connection.sslmode,
             allow_write=connection.allow_write,
             is_default=connection.alias == default_alias,
+            redaction=connection.redaction,
         )
         for connection in connections
     )

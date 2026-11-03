@@ -6,6 +6,9 @@
  * - MAX_ROWS: Maximum rows returned per query (default: 1000)
  * - ALLOW_WRITE_OPERATIONS: Default write permission for connections that do
  *   not state their own (default: false)
+ * - REDACT_PII, REDACT_COLUMNS, ALLOWED_COLUMNS: personal-data redaction
+ *   defaults (see redaction.ts); connections override them with redactPii,
+ *   redactColumns and allowedColumns
  *
  * Connections come in one of two shapes.
  *
@@ -31,6 +34,8 @@
  */
 
 import { z } from 'zod';
+
+import { parseColumnRules, type RedactionPolicy } from './redaction.js';
 
 /** Alias used when a single database is configured the old way. */
 export const DEFAULT_ALIAS = 'default';
@@ -61,6 +66,10 @@ const connectionInputSchema = z
     allowWrite: z.boolean().optional(),
     /** Marks the connection used when a tool call omits `database`. */
     default: z.boolean().optional(),
+    /** Override REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS for this connection. */
+    redactPii: z.boolean().optional(),
+    redactColumns: z.union([z.string(), z.array(z.string())]).nullable().optional(),
+    allowedColumns: z.union([z.string(), z.array(z.string())]).nullable().optional(),
   })
   .refine((c) => c.url !== undefined || (c.user !== undefined && c.database !== undefined), {
     message: 'each connection needs either "url" or both "user" and "database"',
@@ -77,6 +86,8 @@ export interface Connection {
   sslmode: (typeof SSL_MODES)[number];
   allowWrite: boolean;
   isDefault: boolean;
+  /** What to redact from this connection's results. */
+  redaction: RedactionPolicy;
 }
 
 /** The safe-to-share view of a connection: no credentials. */
@@ -165,6 +176,32 @@ function fromUrl(alias: string, url: string) {
   };
 }
 
+/**
+ * A boolean variable, read the way the Python implementation (pydantic) reads
+ * it. Anything unrecognised is an error rather than a silent "false": for a
+ * protection flag, REDACT_PII=1 meaning "off" would fail open.
+ */
+function parseBoolean(value: string | undefined, name: string): boolean {
+  if (value === undefined) return false;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'on', 't', 'true', 'y', 'yes'].includes(normalized)) return true;
+  if (['0', 'off', 'f', 'false', 'n', 'no'].includes(normalized)) return false;
+  throw new Error(`${name} must be true or false, got "${value}"`);
+}
+
+/** Redaction defaults from REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS. */
+function globalRedaction(): RedactionPolicy {
+  try {
+    return {
+      pii: parseBoolean(process.env.REDACT_PII, 'REDACT_PII'),
+      columns: parseColumnRules(process.env.REDACT_COLUMNS, 'REDACT_COLUMNS'),
+      allowed: parseColumnRules(process.env.ALLOWED_COLUMNS, 'ALLOWED_COLUMNS'),
+    };
+  } catch (error) {
+    throw new Error(`Configuration error: ${(error as Error).message}`);
+  }
+}
+
 /** Builds the single connection implied by the POSTGRES_* variables. */
 function singleConnectionFromEnv(defaultAllowWrite: boolean): Connection {
   const schema = z.object({
@@ -195,6 +232,7 @@ function singleConnectionFromEnv(defaultAllowWrite: boolean): Connection {
     ...result.data,
     allowWrite: defaultAllowWrite,
     isDefault: true,
+    redaction: globalRedaction(),
   };
 }
 
@@ -233,6 +271,7 @@ function connectionsFromJson(raw: string, defaultAllowWrite: boolean): Connectio
     throw new Error(`Configuration error: more than one default connection: ${aliases}`);
   }
   const defaultAlias = (explicitDefaults[0] ?? result.data[0]).alias;
+  const defaults = globalRedaction();
 
   return result.data.map((entry) => {
     const fromDsn = entry.url ? fromUrl(entry.alias, entry.url) : undefined;
@@ -261,8 +300,31 @@ function connectionsFromJson(raw: string, defaultAllowWrite: boolean): Connectio
       sslmode,
       allowWrite: entry.allowWrite ?? defaultAllowWrite,
       isDefault: entry.alias === defaultAlias,
+      redaction: redactionFor(entry, defaults),
     };
   });
+}
+
+/** A connection's redaction policy: its own fields win over the defaults. */
+function redactionFor(
+  entry: { alias: string; redactPii?: boolean; redactColumns?: string | string[] | null; allowedColumns?: string | string[] | null },
+  defaults: RedactionPolicy
+): RedactionPolicy {
+  try {
+    return {
+      pii: entry.redactPii ?? defaults.pii,
+      columns:
+        entry.redactColumns === undefined
+          ? defaults.columns
+          : parseColumnRules(entry.redactColumns, `connection "${entry.alias}" redactColumns`),
+      allowed:
+        entry.allowedColumns === undefined
+          ? defaults.allowed
+          : parseColumnRules(entry.allowedColumns, `connection "${entry.alias}" allowedColumns`),
+    };
+  } catch (error) {
+    throw new Error(`Configuration error: ${(error as Error).message}`);
+  }
 }
 
 /** Every configured connection, credentials included. Internal use only. */

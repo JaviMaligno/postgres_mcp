@@ -33,6 +33,7 @@ This repository contains both **TypeScript** and **Python** implementations:
 - **Table Analysis**: Describe structure, indexes, constraints, and statistics
 - **Performance Tools**: EXPLAIN queries and analyze table health
 - **Security First**: SQL injection prevention, credential protection, read-only by default
+- **Personal-Data Redaction**: Optional masking of emails, phones, cards, IBANs and national IDs before results reach the model, plus column deny and allow lists
 - **MCP Prompts**: Guided workflows for exploration, query building, and documentation
 - **MCP Resources**: Browsable database structure as markdown
 
@@ -80,6 +81,9 @@ claude mcp add postgres -s user \
 | `ALLOW_WRITE_OPERATIONS` | | false | Enable INSERT/UPDATE/DELETE |
 | `QUERY_TIMEOUT` | | 30 | Query timeout (seconds) |
 | `MAX_ROWS` | | 1000 | Maximum rows returned |
+| `REDACT_PII` | | false | Mask personal data detected in string values ([details](#personal-data)) |
+| `REDACT_COLUMNS` | | | Comma-separated columns to mask entirely |
+| `ALLOWED_COLUMNS` | | | Comma-separated allow list: every other column is masked |
 
 ### Multiple databases
 
@@ -119,6 +123,66 @@ question about which one won.
 > names an alias; there is deliberately no way to pass a host, user, password or
 > connection string as a tool argument, because that would put secrets into the
 > conversation. A test enforces this.
+
+### Personal data
+
+By default rows are returned as they are stored. Three optional layers keep
+personal data from reaching the model. All of them run inside the server,
+after the query and before the result is sent, so the model never sees the
+masked values.
+
+When any layer is active:
+
+- **Errors** are reduced, because PostgreSQL repeats values in them
+  (`invalid input syntax …: "<value>"`, and `current_setting(col)` can dump a
+  whole column into one). With an allow list an error names only its condition,
+  e.g. `undefined_column, SQLSTATE 42703`. Otherwise it keeps its first line,
+  with every quoted string masked.
+- **`query` and `explain_query` run in a `READ ONLY` transaction**, so a query
+  cannot create a temporary table that shadows an allowed one. Functions that
+  write, such as `nextval()`, fail in `query` while redaction is on. With
+  nothing configured, nothing changes.
+- **If redaction fails**, the result is withheld instead of being sent
+  unredacted.
+
+| Layer | Setting | What it does |
+|-------|---------|--------------|
+| Detection | `REDACT_PII=true` | Scans every string, including JSON and arrays, and replaces emails, phone numbers, payment cards, IBANs, US SSNs, Spanish DNI/NIE, and Indian Aadhaar and PAN numbers with `[REDACTED:<kind>]`. Identifiers with a check digit (cards, IBAN, DNI/NIE, Aadhaar) are only masked when the check digit is valid, so order numbers and dates stay readable. Finds personal data whatever the column is called, including inside free text. |
+| Deny list | `REDACT_COLUMNS=email,customers.phone` | Masks every value of the listed columns as `[REDACTED:column]`. |
+| Allow list | `ALLOWED_COLUMNS=orders.*,customers.id` | Returns only the listed columns. Everything else is masked as `[REDACTED:not_allowed]`. |
+
+A rule is `column`, `table.column` or `schema.table.column`. Matching is
+case-insensitive and `*` is a wildcard. Rules are matched against the **column
+a value was read from**, which PostgreSQL reports for every result column, so
+`SELECT email AS e`, subqueries, CTEs and joins do not get around them.
+A value that is computed (an expression, an aggregate, a `UNION`) has no
+source column:
+
+- the **deny list** cannot see it, so `upper(email)` gets through;
+- the **allow list** masks it, so `replace(email, '@', ' at ')`, `count(*)`
+  and whole-row references (`SELECT c FROM customers c`) are masked. To expose
+  an aggregate, define a view that computes it and allow the view's columns:
+  views count as sources.
+
+When a layer is active, the `query` result includes
+`"redacted": {"email": 2, "not_allowed": 5, …}`, so the model knows which values
+were masked on purpose. Every layer can be set per connection with
+`redactPii`, `redactColumns` and `allowedColumns` in `POSTGRES_CONNECTIONS`,
+which replace the global value for that connection.
+
+Prefer `schema.table.column` rules in an allow list: `customers.id` matches a
+`customers` table in any schema.
+
+**Which one to use.** The allow list is the strictest option this server
+offers, on a connection without `allowWrite` (with writes allowed, a query can
+copy a hidden value into an allowed column first). Detection only recognises
+ASCII digits. Detection is a safety net for free text, where a column name tells you
+nothing. The deny list guards against accidents, not against a query written to
+get around it. No output filter stops a query from *using* a hidden column
+(`WHERE email LIKE 'a%'` still answers through the row count). When that
+matters, give the server a database role without access to those columns
+(column privileges or views). Database permissions are the only full guarantee,
+and these layers work well alongside them.
 
 ### Claude Code CLI
 
@@ -259,6 +323,10 @@ Write operations (INSERT, UPDATE, DELETE) are blocked unless explicitly enabled 
 ### Credential Protection
 - Passwords stored using secure string types
 - Credentials never appear in logs or error messages
+
+### Personal-Data Redaction
+- Optional detection, deny lists and allow lists, applied to results and error
+  messages before they reach the model — see [Personal data](#personal-data)
 
 ### Query Limits
 - Results limited by `MAX_ROWS` (default: 1000)

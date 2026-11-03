@@ -83,12 +83,17 @@ def query(sql: str, database: Optional[str] = None) -> dict:
 
     result = client.execute_query(sql, allow_write=False, max_rows=settings.max_rows)
 
-    return {
+    response = {
         "rows": result["rows"],
         "row_count": result["row_count"],
         "columns": result["columns"],
         "truncated": result.get("truncated", False),
     }
+    if "redacted" in result:
+        # Tells the model that [REDACTED:…] values were masked on purpose,
+        # by kind, so it does not try to work around them or invent values.
+        response["redacted"] = result["redacted"]
+    return response
 
 
 @mcp.tool()

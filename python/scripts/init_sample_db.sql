@@ -92,3 +92,37 @@ INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES
     (6, 5, 1, 299.99),
     (7, 1, 1, 1299.99);
 
+
+-- Personal data hidden where a column name gives no hint: free text, a column
+-- called "ref" or "c1", nested JSON and arrays. Used by the redaction
+-- integration tests of both implementations. The second ticket holds no
+-- personal data at all and must come back untouched (false-positive check).
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id INTEGER PRIMARY KEY,
+    subject TEXT NOT NULL,
+    notes TEXT,
+    ref VARCHAR(32),
+    c1 TEXT,
+    extra JSONB,
+    tags TEXT[],
+    email_verified BOOLEAN NOT NULL DEFAULT false,
+    amount NUMERIC(10, 2),
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+INSERT INTO support_tickets (id, subject, notes, ref, c1, extra, tags, email_verified, amount, created_at) VALUES
+    (1, 'Refund for order 100234567',
+        'Llamar a Ana al +34 600 123 456 o escribir a ana.garcia@corp.es; DNI 12345678Z',
+        '234567890124', '(555) 123-4567',
+        '{"contact": {"alt_email": "j.doe@example.com", "phones": ["+919876543210"]}, "priority": "high"}',
+        ARRAY['vip', 'iban:GB82 WEST 1234 5698 7654 32'], true, 1299.99, '2026-11-03 10:15:00+00'),
+    (2, 'Monitor flickering',
+        'Customer reports flicker at 144 Hz since 2026-10-28 10:15:00, firmware v1.2.3, ISBN 978-3-16-148410-0',
+        '100234567', NULL,
+        '{"priority": "low", "ip": "192.168.100.200"}',
+        ARRAY['hardware'], false, 399.99, '2026-10-28 10:15:00+00')
+ON CONFLICT (id) DO NOTHING;
+
+-- An aggregate exposed through a view, which an allow list can name.
+CREATE OR REPLACE VIEW ticket_counts AS
+SELECT count(*) AS n FROM support_tickets;

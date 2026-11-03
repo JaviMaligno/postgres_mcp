@@ -17,7 +17,7 @@ import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
 /** Keep in step with package.json — `version.test.ts` fails the build if it drifts. */
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 
 export function createServer(): Server {
   const server = new Server(
