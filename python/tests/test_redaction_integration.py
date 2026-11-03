@@ -137,9 +137,10 @@ class TestDenyList:
         for sql in (
             "SELECT notes AS x FROM support_tickets WHERE id = 1",
             "SELECT x FROM (SELECT notes AS x FROM support_tickets) s LIMIT 1",
-            # Wrapped: a statement starting with WITH returns no rows here.
             "SELECT * FROM (WITH c AS (SELECT notes FROM support_tickets) "
             "SELECT notes AS y FROM c LIMIT 1) s",
+            "WITH c AS (SELECT notes FROM support_tickets) "
+            "SELECT notes AS y FROM c LIMIT 1",
             "SELECT t.notes::text AS z FROM support_tickets t "
             "JOIN support_tickets u ON u.id = t.id LIMIT 1",
         ):
@@ -355,3 +356,13 @@ def test_multiple_statements_cannot_leave_the_read_only_transaction(configure):
     configure()
     subject = run("SELECT subject FROM support_tickets WHERE id = 2")["rows"][0]
     assert subject == {"subject": "Monitor flickering"}
+
+
+def test_with_and_show_return_rows(configure):
+    """They used to come back as a row count with no rows."""
+    configure()
+    result = run(
+        "WITH c AS (SELECT id FROM support_tickets) SELECT count(*) AS n FROM c"
+    )
+    assert result["rows"] == [{"n": 2}]
+    assert run("SHOW server_version")["rows"][0]["server_version"]

@@ -160,8 +160,14 @@ class PostgresClient:
             try:
                 cursor.execute(validated_query, params)
 
-                # Check if it's a SELECT query
-                is_select = validated_query.strip().upper().startswith("SELECT")
+                # Rows come back for SELECT and, on the read path, for anything
+                # else that produced a result set (WITH ... SELECT, SHOW,
+                # EXPLAIN): those used to answer with a row count and no rows.
+                # The write path keeps the prefix rule, so INSERT ... RETURNING
+                # through `execute` is still committed and reported as a count.
+                is_select = validated_query.strip().upper().startswith("SELECT") or (
+                    not allow_write and cursor.description is not None
+                )
 
                 if is_select:
                     rows = cursor.fetchmany(max_rows + 1)
