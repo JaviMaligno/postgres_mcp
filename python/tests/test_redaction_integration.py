@@ -336,3 +336,16 @@ class TestReadOnlyUnderRedaction:
         configure(REDACT_PII="true")
         refused = server.query("SELECT nextval('customers_id_seq') > 0 AS ok")
         assert "read_only_sql_transaction" in refused["error"]
+
+
+def test_multiple_statements_cannot_leave_the_read_only_transaction(configure):
+    configure(ALLOWED_COLUMNS="support_tickets.subject")
+    for sql in (
+        "SELECT 1; COMMIT; UPDATE support_tickets SET subject = notes WHERE id = 2",
+        "SET TRANSACTION READ WRITE; UPDATE support_tickets SET subject = notes "
+        "WHERE id = 2",
+    ):
+        assert "error" in server.query(sql), sql
+    configure()
+    subject = run("SELECT subject FROM support_tickets WHERE id = 2")["rows"][0]
+    assert subject == {"subject": "Monitor flickering"}

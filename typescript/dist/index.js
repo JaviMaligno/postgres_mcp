@@ -536,7 +536,7 @@ function redactRows(rows, columns, policy) {
   });
   return { rows: result, counts };
 }
-var QUOTED = /"[^"]*"/g;
+var QUOTED = /"[\s\S]*"/g;
 var KEY_VALUES = /(Key \([^)]*\)=\().*?(\)(?: already exists| is not present| is still referenced|\.|(?![\s\S])))/gs;
 var FAILING_ROW = /(Failing row contains \().*(\))/gs;
 function conditionName(sqlstate) {
@@ -937,12 +937,13 @@ var PostgresClient = class {
     const validatedQuery = validateQuery(query, allowWrite);
     const client = await this.pool.connect();
     let inTransaction = false;
+    let broken = false;
     try {
       if (!allowWrite && policyEnabled(this.redaction)) {
         await client.query("BEGIN READ ONLY");
         inTransaction = true;
       }
-      const result = await client.query(validatedQuery, params);
+      const result = await this.runStatement(client, validatedQuery, params);
       const isSelect = validatedQuery.toUpperCase().trim().startsWith("SELECT");
       let response;
       if (isSelect) {
@@ -981,12 +982,26 @@ var PostgresClient = class {
       }
       return response;
     } catch (error) {
-      if (inTransaction) await client.query("ROLLBACK").catch(() => void 0);
+      if (inTransaction) {
+        await client.query("ROLLBACK").catch(() => {
+          broken = true;
+        });
+      }
       if (error instanceof RedactionFailedError) throw error;
       throw new PostgresClientError(`Query failed: ${this.errorText(error)}`);
     } finally {
-      client.release();
+      client.release(broken);
     }
+  }
+  /**
+   * Run the caller's SQL. With redaction on it goes over the extended
+   * protocol, where PostgreSQL itself refuses more than one command: otherwise
+   * "SELECT 1; COMMIT; UPDATE ..." would end the READ ONLY transaction from
+   * inside the string. (@types/pg does not declare queryMode, hence the cast.)
+   */
+  runStatement(client, text, params) {
+    if (!policyEnabled(this.redaction)) return client.query(text, params);
+    return client.query({ text, values: params, queryMode: "extended" });
   }
   /**
    * An error as the model may see it. node-postgres puts only the primary
@@ -1048,22 +1063,27 @@ var PostgresClient = class {
     explainCmd += `) ${query}`;
     const client = await this.pool.connect();
     const readOnly = policyEnabled(this.redaction);
+    let broken = false;
     try {
       if (readOnly) await client.query("BEGIN READ ONLY");
       try {
-        const result = await client.query(explainCmd);
+        const result = await this.runStatement(client, explainCmd);
         if (result.rows.length > 0) {
           const plan = Object.values(result.rows[0])[0];
           return { success: true, plan };
         }
         return { success: false, error: "No plan returned" };
       } finally {
-        if (readOnly) await client.query("ROLLBACK").catch(() => void 0);
+        if (readOnly) {
+          await client.query("ROLLBACK").catch(() => {
+            broken = true;
+          });
+        }
       }
     } catch (error) {
       return { success: false, error: this.errorText(error) };
     } finally {
-      client.release();
+      client.release(broken);
     }
   }
   // ==================== SCHEMA OPERATIONS ====================

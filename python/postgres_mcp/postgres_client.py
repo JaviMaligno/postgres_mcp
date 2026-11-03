@@ -34,6 +34,10 @@ def _primary_message(error: psycopg2.Error) -> str:
     primary = getattr(diag, "message_primary", None)
     if primary:
         return primary
+    return _first_line(error)
+
+
+def _first_line(error: Exception) -> str:
     lines = str(error).strip().splitlines()
     return lines[0] if lines else type(error).__name__
 
@@ -206,6 +210,15 @@ class PostgresClient:
                     raise PostgresClientError(f"Query failed: {e}") from e
                 message = redact_error(_primary_message(e), self.redaction, e.pgcode)
                 raise PostgresClientError(f"Query failed: {message}") from None
+            except PostgresClientError:
+                raise
+            except Exception as e:
+                # Anything else goes through the same filter, as in TypeScript.
+                if not self.redaction.enabled:
+                    raise
+                conn.rollback()
+                message = redact_error(_first_line(e), self.redaction)
+                raise PostgresClientError(f"Query failed: {message}") from None
             finally:
                 cursor.close()
 
@@ -297,6 +310,11 @@ class PostgresClient:
                     message = redact_error(
                         _primary_message(e), self.redaction, e.pgcode
                     )
+                    raise PostgresClientError(f"Query failed: {message}") from None
+                except Exception as e:
+                    if not self.redaction.enabled:
+                        raise
+                    message = redact_error(_first_line(e), self.redaction)
                     raise PostgresClientError(f"Query failed: {message}") from None
                 result = cursor.fetchone()
             finally:

@@ -379,7 +379,9 @@ export function redactRows(
 // an allow list an error names only its condition; otherwise only the primary
 // message is kept, with every quoted string masked, newlines included. See
 // the Python module for the full list of shapes.
-const QUOTED = /"[^"]*"/g;
+// From the first quote to the last: a value can itself contain quotes
+// ("Ana "La Jefa" Garcia"), so pairing them would leak its middle.
+const QUOTED = /"[\s\S]*"/g;
 // (?![\s\S]) is end-of-input in both Python and JavaScript ($ is not).
 const KEY_VALUES =
   /(Key \([^)]*\)=\().*?(\)(?: already exists| is not present| is still referenced|\.|(?![\s\S])))/gs;

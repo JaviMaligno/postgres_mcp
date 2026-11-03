@@ -96,6 +96,9 @@ export class PostgresClient {
 
     const client = await this.pool.connect();
     let inTransaction = false;
+    // Set when a ROLLBACK fails: that connection must not go back to the pool
+    // with a transaction still open.
+    let broken = false;
     try {
       if (!allowWrite && policyEnabled(this.redaction)) {
         // With redaction on, reads run in a READ ONLY transaction: SELECT ...
@@ -105,7 +108,7 @@ export class PostgresClient {
         await client.query('BEGIN READ ONLY');
         inTransaction = true;
       }
-      const result = await client.query(validatedQuery, params);
+      const result = await this.runStatement(client, validatedQuery, params);
 
       // Check if it's a SELECT query
       const isSelect = validatedQuery.toUpperCase().trim().startsWith('SELECT');
@@ -150,12 +153,27 @@ export class PostgresClient {
       }
       return response;
     } catch (error) {
-      if (inTransaction) await client.query('ROLLBACK').catch(() => undefined);
+      if (inTransaction) {
+        await client.query('ROLLBACK').catch(() => {
+          broken = true;
+        });
+      }
       if (error instanceof RedactionFailedError) throw error;
       throw new PostgresClientError(`Query failed: ${this.errorText(error)}`);
     } finally {
-      client.release();
+      client.release(broken);
     }
+  }
+
+  /**
+   * Run the caller's SQL. With redaction on it goes over the extended
+   * protocol, where PostgreSQL itself refuses more than one command: otherwise
+   * "SELECT 1; COMMIT; UPDATE ..." would end the READ ONLY transaction from
+   * inside the string. (@types/pg does not declare queryMode, hence the cast.)
+   */
+  private runStatement(client: pg.PoolClient, text: string, params?: unknown[]) {
+    if (!policyEnabled(this.redaction)) return client.query(text, params);
+    return client.query({ text, values: params, queryMode: 'extended' } as pg.QueryConfig);
   }
 
   /**
@@ -227,24 +245,29 @@ export class PostgresClient {
 
     const client = await this.pool.connect();
     const readOnly = policyEnabled(this.redaction);
+    let broken = false;
     try {
       // EXPLAIN ANALYZE executes the statement (see executeQuery).
       if (readOnly) await client.query('BEGIN READ ONLY');
       try {
-        const result = await client.query(explainCmd);
+        const result = await this.runStatement(client, explainCmd);
         if (result.rows.length > 0) {
           const plan = Object.values(result.rows[0])[0];
           return { success: true, plan };
         }
         return { success: false, error: 'No plan returned' };
       } finally {
-        if (readOnly) await client.query('ROLLBACK').catch(() => undefined);
+        if (readOnly) {
+          await client.query('ROLLBACK').catch(() => {
+            broken = true;
+          });
+        }
       }
     } catch (error) {
       // EXPLAIN ANALYZE runs the query, so its errors can echo values.
       return { success: false, error: this.errorText(error) };
     } finally {
-      client.release();
+      client.release(broken);
     }
   }
 

@@ -435,7 +435,9 @@ def redact_rows(
 #     DETAIL or CONTEXT), with every quoted string masked, newlines included.
 # Numbers outside quotes survive the second form: deny lists and detection
 # guard against accidents, the allow list is the strict mode.
-_QUOTED = re.compile(r'"[^"]*"')
+# From the first quote to the last: a value can itself contain quotes
+# ("Ana "La Jefa" Garcia"), so pairing them would leak its middle.
+_QUOTED = re.compile(r'"[\s\S]*"')
 # (?![\s\S]) is end-of-input in both Python and JavaScript ($ is not).
 _KEY_VALUES = re.compile(
     r"(Key \([^)]*\)=\().*?"

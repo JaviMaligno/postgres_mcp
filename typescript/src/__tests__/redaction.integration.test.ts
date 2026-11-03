@@ -324,6 +324,20 @@ describe.skipIf(!hasDatabase)('review regressions against a live server', () => 
     ).toContain('read_only_sql_transaction');
   });
 
+  it('keeps multiple statements from leaving the read-only transaction', async () => {
+    configure({ ALLOWED_COLUMNS: 'support_tickets.subject' });
+    for (const sql of [
+      'SELECT 1; COMMIT; UPDATE support_tickets SET subject = notes WHERE id = 2',
+      'SET TRANSACTION READ WRITE; UPDATE support_tickets SET subject = notes WHERE id = 2',
+    ]) {
+      expect(await errorOf(sql), sql).not.toBe('');
+    }
+    configure();
+    expect((await run('SELECT subject FROM support_tickets WHERE id = 2')).rows).toEqual([
+      { subject: 'Monitor flickering' },
+    ]);
+  });
+
   it('does not force read-only reads when nothing is configured', async () => {
     configure();
     expect((await run("SELECT nextval('customers_id_seq') > 0 AS ok")).rows).toEqual([{ ok: true }]);
