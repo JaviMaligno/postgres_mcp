@@ -267,6 +267,9 @@ export async function handleToolCall(
         row_count: result.row_count,
         columns: result.columns,
         truncated: result.truncated || false,
+        // Tells the model that [REDACTED:…] values were masked on purpose, by
+        // kind, so it does not try to work around them or invent values.
+        ...(result.redacted ? { redacted: result.redacted } : {}),
       };
     }
 

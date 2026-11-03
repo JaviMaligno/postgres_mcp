@@ -6,6 +6,9 @@
  * - MAX_ROWS: Maximum rows returned per query (default: 1000)
  * - ALLOW_WRITE_OPERATIONS: Default write permission for connections that do
  *   not state their own (default: false)
+ * - REDACT_PII, REDACT_COLUMNS, ALLOWED_COLUMNS: personal-data redaction
+ *   defaults (see redaction.ts); connections override them with redactPii,
+ *   redactColumns and allowedColumns
  *
  * Connections come in one of two shapes.
  *
@@ -31,6 +34,8 @@
  */
 
 import { z } from 'zod';
+
+import { parseColumnRules, type RedactionPolicy } from './redaction.js';
 
 /** Alias used when a single database is configured the old way. */
 export const DEFAULT_ALIAS = 'default';
@@ -61,6 +66,10 @@ const connectionInputSchema = z
     allowWrite: z.boolean().optional(),
     /** Marks the connection used when a tool call omits `database`. */
     default: z.boolean().optional(),
+    /** Override REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS for this connection. */
+    redactPii: z.boolean().optional(),
+    redactColumns: z.union([z.string(), z.array(z.string())]).optional(),
+    allowedColumns: z.union([z.string(), z.array(z.string())]).optional(),
   })
   .refine((c) => c.url !== undefined || (c.user !== undefined && c.database !== undefined), {
     message: 'each connection needs either "url" or both "user" and "database"',
@@ -77,6 +86,8 @@ export interface Connection {
   sslmode: (typeof SSL_MODES)[number];
   allowWrite: boolean;
   isDefault: boolean;
+  /** What to redact from this connection's results. */
+  redaction: RedactionPolicy;
 }
 
 /** The safe-to-share view of a connection: no credentials. */
@@ -165,6 +176,19 @@ function fromUrl(alias: string, url: string) {
   };
 }
 
+/** Redaction defaults from REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS. */
+function globalRedaction(): RedactionPolicy {
+  try {
+    return {
+      pii: process.env.REDACT_PII === 'true',
+      columns: parseColumnRules(process.env.REDACT_COLUMNS, 'REDACT_COLUMNS'),
+      allowed: parseColumnRules(process.env.ALLOWED_COLUMNS, 'ALLOWED_COLUMNS'),
+    };
+  } catch (error) {
+    throw new Error(`Configuration error: ${(error as Error).message}`);
+  }
+}
+
 /** Builds the single connection implied by the POSTGRES_* variables. */
 function singleConnectionFromEnv(defaultAllowWrite: boolean): Connection {
   const schema = z.object({
@@ -195,6 +219,7 @@ function singleConnectionFromEnv(defaultAllowWrite: boolean): Connection {
     ...result.data,
     allowWrite: defaultAllowWrite,
     isDefault: true,
+    redaction: globalRedaction(),
   };
 }
 
@@ -233,6 +258,7 @@ function connectionsFromJson(raw: string, defaultAllowWrite: boolean): Connectio
     throw new Error(`Configuration error: more than one default connection: ${aliases}`);
   }
   const defaultAlias = (explicitDefaults[0] ?? result.data[0]).alias;
+  const defaults = globalRedaction();
 
   return result.data.map((entry) => {
     const fromDsn = entry.url ? fromUrl(entry.alias, entry.url) : undefined;
@@ -261,8 +287,31 @@ function connectionsFromJson(raw: string, defaultAllowWrite: boolean): Connectio
       sslmode,
       allowWrite: entry.allowWrite ?? defaultAllowWrite,
       isDefault: entry.alias === defaultAlias,
+      redaction: redactionFor(entry, defaults),
     };
   });
+}
+
+/** A connection's redaction policy: its own fields win over the defaults. */
+function redactionFor(
+  entry: { alias: string; redactPii?: boolean; redactColumns?: string | string[]; allowedColumns?: string | string[] },
+  defaults: RedactionPolicy
+): RedactionPolicy {
+  try {
+    return {
+      pii: entry.redactPii ?? defaults.pii,
+      columns:
+        entry.redactColumns === undefined
+          ? defaults.columns
+          : parseColumnRules(entry.redactColumns, `connection "${entry.alias}" redactColumns`),
+      allowed:
+        entry.allowedColumns === undefined
+          ? defaults.allowed
+          : parseColumnRules(entry.allowedColumns, `connection "${entry.alias}" allowedColumns`),
+    };
+  } catch (error) {
+    throw new Error(`Configuration error: ${(error as Error).message}`);
+  }
 }
 
 /** Every configured connection, credentials included. Internal use only. */

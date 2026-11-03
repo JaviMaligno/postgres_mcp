@@ -7,6 +7,15 @@
 import pg from 'pg';
 import { getConnectionConfig, getSettings, resolveAlias } from './settings.js';
 import { validateQuery, validateIdentifier, escapeLikePattern } from './security.js';
+import {
+  policyEnabled,
+  policyNeedsSources,
+  redactErrorMessage,
+  redactRows,
+  type ColumnMeta,
+  type RedactionPolicy,
+  type Source,
+} from './redaction.js';
 import type {
   SchemaInfo,
   TableInfo,
@@ -44,11 +53,14 @@ export class PostgresClient {
   readonly alias: string;
   /** Write permission for this connection specifically, not globally. */
   readonly allowWrite: boolean;
+  /** What to redact from this connection's results. */
+  readonly redaction: RedactionPolicy;
 
   constructor(alias?: string) {
     const connection = resolveAlias(alias);
     this.alias = connection.alias;
     this.allowWrite = connection.allowWrite;
+    this.redaction = connection.redaction;
     this.pool = new Pool(getConnectionConfig(connection.alias));
   }
 
@@ -85,14 +97,21 @@ export class PostgresClient {
       if (isSelect) {
         const rows = result.rows.slice(0, maxRows);
         const truncated = result.rows.length > maxRows;
-
-        return {
+        const response: QueryResult = {
           success: true,
           rows,
           row_count: rows.length,
           columns: result.fields?.map(f => f.name) || [],
           truncated,
         };
+
+        if (policyEnabled(this.redaction)) {
+          const meta = await this.columnSources(client, result.fields ?? []);
+          const redacted = redactRows(rows, meta, this.redaction);
+          response.rows = redacted.rows;
+          response.redacted = redacted.counts;
+        }
+        return response;
       } else {
         return {
           success: true,
@@ -104,10 +123,52 @@ export class PostgresClient {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      throw new PostgresClientError(`Query failed: ${message}`);
+      throw new PostgresClientError(
+        `Query failed: ${redactErrorMessage(message, this.redaction)}`
+      );
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Resolve each result column to the table column it was read from.
+   *
+   * PostgreSQL reports a table OID and attribute number per result column when
+   * the value is a plain column reference (also through aliases, subqueries,
+   * CTEs and joins); expressions, aggregates and UNIONs report none. Attribute
+   * number 0 is a whole-row reference.
+   */
+  private async columnSources(
+    client: pg.PoolClient,
+    fields: Array<{ name: string; tableID: number; columnID: number }>
+  ): Promise<ColumnMeta[]> {
+    const oids = [...new Set(fields.map((f) => f.tableID).filter((oid) => oid))];
+    const catalog = new Map<number, Map<number, Source>>();
+    if (oids.length > 0 && policyNeedsSources(this.redaction)) {
+      const result = await client.query(
+        `SELECT a.attrelid::bigint AS oid, a.attnum, n.nspname, c.relname, a.attname
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped`,
+        [oids]
+      );
+      for (const row of result.rows) {
+        // bigint arrives as a string from node-postgres.
+        const oid = Number(row.oid);
+        if (!catalog.has(oid)) catalog.set(oid, new Map());
+        catalog.get(oid)!.set(Number(row.attnum), [row.nspname, row.relname, row.attname]);
+      }
+    }
+    return fields.map((field) => {
+      const table = catalog.get(field.tableID) ?? new Map<number, Source>();
+      return {
+        name: field.name,
+        source: field.columnID > 0 ? (table.get(field.columnID) ?? null) : null,
+        rowOf: field.tableID && field.columnID === 0 ? [...table.values()] : null,
+      };
+    });
   }
 
   /**
@@ -132,8 +193,9 @@ export class PostgresClient {
       }
       return { success: false, error: 'No plan returned' };
     } catch (error) {
+      // EXPLAIN ANALYZE runs the query, so its errors can echo values.
       const message = error instanceof Error ? error.message : 'Unknown error';
-      return { success: false, error: message };
+      return { success: false, error: redactErrorMessage(message, this.redaction) };
     } finally {
       client.release();
     }

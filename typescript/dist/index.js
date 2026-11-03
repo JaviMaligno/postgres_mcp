@@ -5,6 +5,284 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 // src/settings.ts
 import { z } from "zod";
+
+// src/redaction.ts
+var REDACTED_COLUMN = "[REDACTED:column]";
+var REDACTED_NOT_ALLOWED = "[REDACTED:not_allowed]";
+var RULE_PATTERN = /^[^.\s,]+(\.[^.\s,]+){0,2}$/;
+function policyEnabled(policy) {
+  return policy.pii || policy.columns.length > 0 || policy.allowed.length > 0;
+}
+function policyNeedsSources(policy) {
+  return policy.columns.length > 0 || policy.allowed.length > 0;
+}
+function parseColumnRules(value, where) {
+  if (value === void 0 || value === null || value === "") return [];
+  let items;
+  if (typeof value === "string") {
+    items = value.split(",");
+  } else if (Array.isArray(value)) {
+    items = value;
+  } else {
+    throw new Error(`${where} must be a list of column rules`);
+  }
+  const rules = [];
+  for (const item of items) {
+    if (typeof item !== "string") {
+      throw new Error(`${where} must contain only strings`);
+    }
+    const rule = item.trim().toLowerCase();
+    if (!rule) continue;
+    if (!RULE_PATTERN.test(rule)) {
+      throw new Error(
+        `${where} has an invalid rule "${item}": use column, table.column or schema.table.column`
+      );
+    }
+    rules.push(rule);
+  }
+  return rules;
+}
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function glob(pattern, value) {
+  const regex = new RegExp("^" + pattern.split("*").map(escapeRegex).join(".*") + "$", "s");
+  return regex.test(value.toLowerCase());
+}
+function sourceMatches(rule, source) {
+  const parts = rule.split(".");
+  const targets = source.slice(-parts.length);
+  return parts.every((part, index) => glob(part, targets[index]));
+}
+function ruleMatches(rule, name, source) {
+  const parts = rule.split(".");
+  if (parts.length === 1) {
+    if (glob(parts[0], name)) return true;
+    return source !== null && glob(parts[0], source[2]);
+  }
+  return source !== null && sourceMatches(rule, source);
+}
+function denied(column, rules) {
+  if (rules.some((rule) => ruleMatches(rule, column.name, column.source))) return true;
+  return (column.rowOf ?? []).some((member) => rules.some((rule) => sourceMatches(rule, member)));
+}
+function allowed(column, rules) {
+  const source = column.source;
+  return source !== null && rules.some((rule) => sourceMatches(rule, source));
+}
+function columnsToMask(columns, policy) {
+  const masked = /* @__PURE__ */ new Map();
+  for (const column of columns) {
+    if (policy.columns.length > 0 && denied(column, policy.columns)) {
+      masked.set(column.name, REDACTED_COLUMN);
+    } else if (policy.allowed.length > 0 && !allowed(column, policy.allowed)) {
+      if (!masked.has(column.name)) masked.set(column.name, REDACTED_NOT_ALLOWED);
+    }
+  }
+  return masked;
+}
+var DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE";
+var VERHOEFF_D = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+  [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+  [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+  [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
+  [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+  [6, 5, 9, 8, 7, 1, 0, 4, 3, 2],
+  [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+  [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
+  [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]
+];
+var VERHOEFF_P = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+  [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+  [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+  [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
+  [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+  [2, 7, 9, 3, 8, 0, 6, 4, 1, 5],
+  [7, 0, 4, 6, 9, 1, 3, 2, 5, 8]
+];
+var CARD_PREFIX = /^(?:4|5[1-5]|2[2-7]|3[47]|3(?:0[0-5]|[68])|35|6(?:011|5|4[4-9]))/;
+var digits = (text) => text.replace(/\D/g, "");
+var separatorSet = (text, chars) => new Set(text.match(chars) ?? []);
+function luhn(number) {
+  let total = 0;
+  [...number].reverse().forEach((char, index) => {
+    let digit = Number(char);
+    if (index % 2) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    total += digit;
+  });
+  return total % 10 === 0;
+}
+function verhoeff(number) {
+  let check = 0;
+  [...number].reverse().forEach((char, index) => {
+    check = VERHOEFF_D[check][VERHOEFF_P[index % 8][Number(char)]];
+  });
+  return check === 0;
+}
+function validIban(match) {
+  const iban = match[0].replace(/ /g, "");
+  if (iban.length < 15 || iban.length > 34) return false;
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  let remainder = 0;
+  for (const char of rearranged) {
+    const value = parseInt(char, 36).toString();
+    for (const d of value) remainder = (remainder * 10 + Number(d)) % 97;
+  }
+  return remainder === 1;
+}
+function validCard(match) {
+  const text = match[0];
+  if (separatorSet(text, /[ -]/g).size > 1) return false;
+  const number = digits(text);
+  return number.length >= 13 && number.length <= 19 && CARD_PREFIX.test(number) && luhn(number);
+}
+function validSsn(match) {
+  const [, area, group, serial] = match;
+  return area !== "000" && area !== "666" && !area.startsWith("9") && group !== "00" && serial !== "0000";
+}
+function validDni(match) {
+  const prefix = match[1];
+  let number = match[2];
+  const letter = match[3];
+  if (prefix) {
+    if (number.length !== 7) return false;
+    number = String("XYZ".indexOf(prefix.toUpperCase())) + number;
+  } else if (number.length !== 8) {
+    return false;
+  }
+  return DNI_LETTERS[Number(number) % 23] === letter.toUpperCase();
+}
+function validAadhaar(match) {
+  const text = match[0];
+  if (separatorSet(text, /[ -]/g).size > 1) return false;
+  return verhoeff(digits(text));
+}
+function isIpv4(groups) {
+  return groups.length === 4 && groups.every((g) => g.length <= 3 && Number(g) <= 255);
+}
+function validPhone(match) {
+  const text = match[0];
+  const count = digits(text).length;
+  if (text.startsWith("+")) return count >= 8 && count <= 15;
+  if (text.includes("(")) return count >= 9 && count <= 12;
+  const separators = separatorSet(text, /[ .-]/g);
+  if (separators.size !== 1) return false;
+  if (count < 9 || count > 12) return false;
+  const groups = text.split(/[ .-]/);
+  if (separators.has("-") && groups.map((g) => g.length).join(",") === "3,2,4") return false;
+  return !(separators.has(".") && isIpv4(groups));
+}
+var always = () => true;
+var DETECTORS = [
+  [
+    "email",
+    /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?![A-Za-z0-9-])/g,
+    always
+  ],
+  [
+    "iban",
+    /(?<![A-Za-z0-9])[A-Z]{2}[0-9]{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?(?![A-Za-z0-9])/g,
+    validIban
+  ],
+  ["credit_card", /(?<![A-Za-z0-9_+])[0-9](?:[ -]?[0-9]){12,18}(?![A-Za-z0-9_])/g, validCard],
+  ["us_ssn", /(?<![A-Za-z0-9_-])([0-9]{3})-([0-9]{2})-([0-9]{4})(?![A-Za-z0-9_]|-[0-9])/g, validSsn],
+  ["es_dni", /(?<![A-Za-z0-9_])([XYZxyz]?)([0-9]{7,8})-?([A-Za-z])(?![A-Za-z0-9_])/g, validDni],
+  [
+    "in_aadhaar",
+    /(?<![A-Za-z0-9_+-])[2-9][0-9]{3}[ -]?[0-9]{4}[ -]?[0-9]{4}(?![A-Za-z0-9_])/g,
+    validAadhaar
+  ],
+  ["in_pan", /(?<![A-Za-z0-9_])[A-Z]{3}[ABCFGHLJPT][A-Z][0-9]{4}[A-Z](?![A-Za-z0-9_])/g, always],
+  [
+    "phone",
+    /(?<![A-Za-z0-9_./:+-])(?:\+[0-9]{1,3}[ .-]?)?(?:\([0-9]{1,4}\)[ .-]?)?[0-9]{1,14}(?:[ .-][0-9]{1,14}){0,5}(?![A-Za-z0-9_/]|[.:-][0-9])/g,
+    validPhone
+  ]
+];
+function tally(counts, kind) {
+  counts[kind] = (counts[kind] ?? 0) + 1;
+}
+function redactText(text, counts) {
+  for (const [kind, pattern, isValid] of DETECTORS) {
+    let out = "";
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index ?? 0;
+      out += text.slice(last, start);
+      if (isValid(match)) {
+        tally(counts, kind);
+        out += `[REDACTED:${kind}]`;
+      } else {
+        out += match[0];
+      }
+      last = start + match[0].length;
+    }
+    text = out + text.slice(last);
+  }
+  return text;
+}
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+function redactValue(value, counts) {
+  if (typeof value === "string") return redactText(value, counts);
+  if (Array.isArray(value)) return value.map((item) => redactValue(item, counts));
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactValue(item, counts)])
+    );
+  }
+  return value;
+}
+function redactRows(rows, columns, policy) {
+  const counts = {};
+  if (!policyEnabled(policy)) return { rows, counts };
+  const masked = columnsToMask(columns, policy);
+  const result = rows.map((row) => {
+    const next = {};
+    for (const [key, value] of Object.entries(row)) {
+      const token = masked.get(key);
+      if (token !== void 0) {
+        if (value !== null && value !== void 0) {
+          tally(counts, token.slice("[REDACTED:".length, -1));
+          next[key] = token;
+        } else {
+          next[key] = value;
+        }
+      } else if (policy.pii) {
+        next[key] = redactValue(value, counts);
+      } else {
+        next[key] = value;
+      }
+    }
+    return next;
+  });
+  return { rows: result, counts };
+}
+var ERROR_VALUE_PATTERNS = [
+  /(Key \([^\n]*?\)=\()[^\n]*(\))/g,
+  /(Failing row contains \()[^\n]*(\))/g,
+  /(: ")[^\n]*(")/g
+];
+function redactErrorMessage(message, policy) {
+  if (!policyEnabled(policy)) return message;
+  for (const pattern of ERROR_VALUE_PATTERNS) {
+    message = message.replace(pattern, "$1[REDACTED]$2");
+  }
+  if (policy.pii) message = redactText(message, {});
+  return message;
+}
+
+// src/settings.ts
 var DEFAULT_ALIAS = "default";
 var SSL_MODES = ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"];
 var globalSettingsSchema = z.object({
@@ -27,7 +305,11 @@ var connectionInputSchema = z.object({
   /** Overrides ALLOW_WRITE_OPERATIONS for this connection only. */
   allowWrite: z.boolean().optional(),
   /** Marks the connection used when a tool call omits `database`. */
-  default: z.boolean().optional()
+  default: z.boolean().optional(),
+  /** Override REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS for this connection. */
+  redactPii: z.boolean().optional(),
+  redactColumns: z.union([z.string(), z.array(z.string())]).optional(),
+  allowedColumns: z.union([z.string(), z.array(z.string())]).optional()
 }).refine((c) => c.url !== void 0 || c.user !== void 0 && c.database !== void 0, {
   message: 'each connection needs either "url" or both "user" and "database"'
 });
@@ -84,6 +366,17 @@ function fromUrl(alias, url) {
     sslmode
   };
 }
+function globalRedaction() {
+  try {
+    return {
+      pii: process.env.REDACT_PII === "true",
+      columns: parseColumnRules(process.env.REDACT_COLUMNS, "REDACT_COLUMNS"),
+      allowed: parseColumnRules(process.env.ALLOWED_COLUMNS, "ALLOWED_COLUMNS")
+    };
+  } catch (error) {
+    throw new Error(`Configuration error: ${error.message}`);
+  }
+}
 function singleConnectionFromEnv(defaultAllowWrite) {
   const schema = z.object({
     host: z.string().default("localhost"),
@@ -109,7 +402,8 @@ function singleConnectionFromEnv(defaultAllowWrite) {
     alias: DEFAULT_ALIAS,
     ...result.data,
     allowWrite: defaultAllowWrite,
-    isDefault: true
+    isDefault: true,
+    redaction: globalRedaction()
   };
 }
 function connectionsFromJson(raw, defaultAllowWrite) {
@@ -140,6 +434,7 @@ function connectionsFromJson(raw, defaultAllowWrite) {
     throw new Error(`Configuration error: more than one default connection: ${aliases}`);
   }
   const defaultAlias = (explicitDefaults[0] ?? result.data[0]).alias;
+  const defaults = globalRedaction();
   return result.data.map((entry) => {
     const fromDsn = entry.url ? fromUrl(entry.alias, entry.url) : void 0;
     const host = entry.host ?? fromDsn?.host ?? "localhost";
@@ -162,9 +457,21 @@ function connectionsFromJson(raw, defaultAllowWrite) {
       database,
       sslmode,
       allowWrite: entry.allowWrite ?? defaultAllowWrite,
-      isDefault: entry.alias === defaultAlias
+      isDefault: entry.alias === defaultAlias,
+      redaction: redactionFor(entry, defaults)
     };
   });
+}
+function redactionFor(entry, defaults) {
+  try {
+    return {
+      pii: entry.redactPii ?? defaults.pii,
+      columns: entry.redactColumns === void 0 ? defaults.columns : parseColumnRules(entry.redactColumns, `connection "${entry.alias}" redactColumns`),
+      allowed: entry.allowedColumns === void 0 ? defaults.allowed : parseColumnRules(entry.allowedColumns, `connection "${entry.alias}" allowedColumns`)
+    };
+  } catch (error) {
+    throw new Error(`Configuration error: ${error.message}`);
+  }
 }
 function getConnections() {
   if (cachedConnections) {
@@ -316,10 +623,13 @@ var PostgresClient = class {
   alias;
   /** Write permission for this connection specifically, not globally. */
   allowWrite;
+  /** What to redact from this connection's results. */
+  redaction;
   constructor(alias) {
     const connection = resolveAlias(alias);
     this.alias = connection.alias;
     this.allowWrite = connection.allowWrite;
+    this.redaction = connection.redaction;
     this.pool = new Pool(getConnectionConfig(connection.alias));
   }
   /**
@@ -343,13 +653,20 @@ var PostgresClient = class {
       if (isSelect) {
         const rows = result.rows.slice(0, maxRows);
         const truncated = result.rows.length > maxRows;
-        return {
+        const response = {
           success: true,
           rows,
           row_count: rows.length,
           columns: result.fields?.map((f) => f.name) || [],
           truncated
         };
+        if (policyEnabled(this.redaction)) {
+          const meta = await this.columnSources(client, result.fields ?? []);
+          const redacted = redactRows(rows, meta, this.redaction);
+          response.rows = redacted.rows;
+          response.redacted = redacted.counts;
+        }
+        return response;
       } else {
         return {
           success: true,
@@ -361,10 +678,47 @@ var PostgresClient = class {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      throw new PostgresClientError(`Query failed: ${message}`);
+      throw new PostgresClientError(
+        `Query failed: ${redactErrorMessage(message, this.redaction)}`
+      );
     } finally {
       client.release();
     }
+  }
+  /**
+   * Resolve each result column to the table column it was read from.
+   *
+   * PostgreSQL reports a table OID and attribute number per result column when
+   * the value is a plain column reference (also through aliases, subqueries,
+   * CTEs and joins); expressions, aggregates and UNIONs report none. Attribute
+   * number 0 is a whole-row reference.
+   */
+  async columnSources(client, fields) {
+    const oids = [...new Set(fields.map((f) => f.tableID).filter((oid) => oid))];
+    const catalog = /* @__PURE__ */ new Map();
+    if (oids.length > 0 && policyNeedsSources(this.redaction)) {
+      const result = await client.query(
+        `SELECT a.attrelid::bigint AS oid, a.attnum, n.nspname, c.relname, a.attname
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped`,
+        [oids]
+      );
+      for (const row of result.rows) {
+        const oid = Number(row.oid);
+        if (!catalog.has(oid)) catalog.set(oid, /* @__PURE__ */ new Map());
+        catalog.get(oid).set(Number(row.attnum), [row.nspname, row.relname, row.attname]);
+      }
+    }
+    return fields.map((field) => {
+      const table = catalog.get(field.tableID) ?? /* @__PURE__ */ new Map();
+      return {
+        name: field.name,
+        source: field.columnID > 0 ? table.get(field.columnID) ?? null : null,
+        rowOf: field.tableID && field.columnID === 0 ? [...table.values()] : null
+      };
+    });
   }
   /**
    * Get EXPLAIN plan for a query
@@ -386,7 +740,7 @@ var PostgresClient = class {
       return { success: false, error: "No plan returned" };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, error: message };
+      return { success: false, error: redactErrorMessage(message, this.redaction) };
     } finally {
       client.release();
     }
@@ -972,7 +1326,10 @@ async function handleToolCall(name, args) {
         rows: result.rows,
         row_count: result.row_count,
         columns: result.columns,
-        truncated: result.truncated || false
+        truncated: result.truncated || false,
+        // Tells the model that [REDACTED:…] values were masked on purpose, by
+        // kind, so it does not try to work around them or invent values.
+        ...result.redacted ? { redacted: result.redacted } : {}
       };
     }
     case "execute": {
@@ -1423,7 +1780,7 @@ Format as markdown suitable for technical documentation.`;
 }
 
 // src/server.ts
-var VERSION = "1.1.0";
+var VERSION = "1.2.0";
 function createServer() {
   const server = new Server(
     {
