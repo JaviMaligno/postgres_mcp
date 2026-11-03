@@ -7,12 +7,12 @@
     "url": "https://github.com/JaviMaligno/postgres_mcp",
     "source": "github"
   },
-  "version": "1.1.0",
+  "version": "1.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@javiagui/postgresql-mcp",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -83,6 +83,27 @@
         {
           "name": "MAX_ROWS",
           "description": "Maximum returned rows (default: 1000)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "REDACT_PII",
+          "description": "Mask emails, phones, cards, IBANs and national IDs in results (default: false)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "REDACT_COLUMNS",
+          "description": "Comma-separated columns to mask, e.g. email,customers.phone",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ALLOWED_COLUMNS",
+          "description": "Comma-separated allow list; every other column is masked",
           "isRequired": false,
           "format": "string",
           "isSecret": false
@@ -92,7 +113,7 @@
     {
       "registryType": "pypi",
       "identifier": "postgresql-mcp",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -163,6 +184,27 @@
         {
           "name": "MAX_ROWS",
           "description": "Maximum returned rows (default: 1000)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "REDACT_PII",
+          "description": "Mask emails, phones, cards, IBANs and national IDs in results (default: false)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "REDACT_COLUMNS",
+          "description": "Comma-separated columns to mask, e.g. email,customers.phone",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ALLOWED_COLUMNS",
+          "description": "Comma-separated allow list; every other column is masked",
           "isRequired": false,
           "format": "string",
           "isSecret": false

@@ -41,6 +41,9 @@ claude mcp add postgres -s user \
 | `ALLOW_WRITE_OPERATIONS` | | `false` | Enable INSERT/UPDATE/DELETE |
 | `QUERY_TIMEOUT` | | `30` | Query timeout in seconds |
 | `MAX_ROWS` | | `1000` | Maximum rows returned per query |
+| `REDACT_PII` | | `false` | Mask emails, phones, cards, IBANs and national IDs found in results |
+| `REDACT_COLUMNS` | | | Comma-separated columns to mask entirely |
+| `ALLOWED_COLUMNS` | | | Comma-separated allow list: every other column is masked |
 
 ## What it provides
 
@@ -49,6 +52,8 @@ claude mcp add postgres -s user \
 - **Named databases** — select a configured connection per tool call without exposing credentials
 - **Resources** — browsable database structure as markdown
 - **Read-only by default**, with SQL injection prevention and credential protection
+- **Personal-data redaction** (opt-in) — detection, column deny lists and allow lists,
+  applied before results reach the model ([details](https://github.com/JaviMaligno/postgres_mcp#personal-data))
 
 See the [full documentation](https://github.com/JaviMaligno/postgres_mcp#readme) for
 the complete tool reference, security model, and the

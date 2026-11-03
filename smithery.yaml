@@ -56,6 +56,16 @@ startCommand:
         type: number
         default: 1000
         description: Maximum rows returned per query
+      REDACT_PII:
+        type: boolean
+        default: false
+        description: Mask emails, phones, cards, IBANs and national IDs found in results
+      REDACT_COLUMNS:
+        type: string
+        description: Comma-separated columns to mask entirely (e.g. email,customers.phone)
+      ALLOWED_COLUMNS:
+        type: string
+        description: Comma-separated allow list; every other column is masked
     required:
       - POSTGRES_USER
       - POSTGRES_PASSWORD
@@ -73,7 +83,10 @@ startCommand:
         POSTGRES_SSLMODE: config.POSTGRES_SSLMODE || "prefer",
         ALLOW_WRITE_OPERATIONS: config.ALLOW_WRITE_OPERATIONS ? "true" : "false",
         QUERY_TIMEOUT: config.QUERY_TIMEOUT ? String(config.QUERY_TIMEOUT) : "30",
-        MAX_ROWS: config.MAX_ROWS ? String(config.MAX_ROWS) : "1000"
+        MAX_ROWS: config.MAX_ROWS ? String(config.MAX_ROWS) : "1000",
+        REDACT_PII: config.REDACT_PII ? "true" : "false",
+        REDACT_COLUMNS: config.REDACT_COLUMNS || "",
+        ALLOWED_COLUMNS: config.ALLOWED_COLUMNS || ""
       }
     })
   exampleConfig:
