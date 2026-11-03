@@ -62,6 +62,15 @@ describe.skipIf(!hasDatabase)('redaction against a live server', () => {
     resetSettings();
   });
 
+  it('returns rows for WITH and SHOW', async () => {
+    // They used to come back as a row count with no rows.
+    configure();
+    expect(
+      (await run('WITH c AS (SELECT id FROM support_tickets) SELECT count(*) AS n FROM c')).rows
+    ).toEqual([{ n: '2' }]);
+    expect((await run('SHOW server_version')).rows[0].server_version).toBeTruthy();
+  });
+
   it('changes nothing without configuration', async () => {
     configure();
     const result = await run(TICKETS);
@@ -145,8 +154,8 @@ describe.skipIf(!hasDatabase)('redaction against a live server', () => {
       for (const sql of [
         'SELECT notes AS x FROM support_tickets WHERE id = 1',
         'SELECT x FROM (SELECT notes AS x FROM support_tickets) s LIMIT 1',
-        // Wrapped: a statement starting with WITH returns no rows here.
         'SELECT * FROM (WITH c AS (SELECT notes FROM support_tickets) SELECT notes AS y FROM c LIMIT 1) s',
+        'WITH c AS (SELECT notes FROM support_tickets) SELECT notes AS y FROM c LIMIT 1',
         'SELECT t.notes::text AS z FROM support_tickets t JOIN support_tickets u ON u.id = t.id LIMIT 1',
       ]) {
         const [row] = (await run(sql)).rows;

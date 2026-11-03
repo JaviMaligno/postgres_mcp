@@ -110,8 +110,14 @@ export class PostgresClient {
       }
       const result = await this.runStatement(client, validatedQuery, params);
 
-      // Check if it's a SELECT query
-      const isSelect = validatedQuery.toUpperCase().trim().startsWith('SELECT');
+      // Rows come back for SELECT and, on the read path, for anything else
+      // that produced a result set (WITH ... SELECT, SHOW, EXPLAIN): those used
+      // to answer with a row count and no rows. The write path keeps the
+      // prefix rule, so INSERT ... RETURNING through `execute` is still
+      // reported as a count.
+      const isSelect =
+        validatedQuery.toUpperCase().trim().startsWith('SELECT') ||
+        (!allowWrite && (result.fields?.length ?? 0) > 0);
 
       let response: QueryResult;
       if (isSelect) {

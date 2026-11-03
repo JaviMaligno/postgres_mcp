@@ -1031,7 +1031,7 @@ var PostgresClient = class {
         inTransaction = true;
       }
       const result = await this.runStatement(client, validatedQuery, params);
-      const isSelect = validatedQuery.toUpperCase().trim().startsWith("SELECT");
+      const isSelect = validatedQuery.toUpperCase().trim().startsWith("SELECT") || !allowWrite && (result.fields?.length ?? 0) > 0;
       let response;
       if (isSelect) {
         const rows = result.rows.slice(0, maxRows);
@@ -2208,7 +2208,7 @@ Format as markdown suitable for technical documentation.`;
 }
 
 // src/server.ts
-var VERSION = "1.2.1";
+var VERSION = "1.2.2";
 function createServer() {
   const server = new Server(
     {
