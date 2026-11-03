@@ -145,7 +145,8 @@ describe.skipIf(!hasDatabase)('redaction against a live server', () => {
       for (const sql of [
         'SELECT notes AS x FROM support_tickets WHERE id = 1',
         'SELECT x FROM (SELECT notes AS x FROM support_tickets) s LIMIT 1',
-        'WITH c AS (SELECT notes FROM support_tickets) SELECT notes AS y FROM c LIMIT 1',
+        // Wrapped: a statement starting with WITH returns no rows here.
+        'SELECT * FROM (WITH c AS (SELECT notes FROM support_tickets) SELECT notes AS y FROM c LIMIT 1) s',
         'SELECT t.notes::text AS z FROM support_tickets t JOIN support_tickets u ON u.id = t.id LIMIT 1',
       ]) {
         const [row] = (await run(sql)).rows;
