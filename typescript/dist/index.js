@@ -6,6 +6,274 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 // src/settings.ts
 import { z } from "zod";
 
+// src/sqlstate.ts
+var SQLSTATE_NAMES = {
+  "00000": "successful_completion",
+  "01000": "warning",
+  "01003": "null_value_eliminated_in_set_function",
+  "01004": "string_data_right_truncation",
+  "01006": "privilege_not_revoked",
+  "01007": "privilege_not_granted",
+  "01008": "implicit_zero_bit_padding",
+  "0100C": "dynamic_result_sets_returned",
+  "01P01": "deprecated_feature",
+  "02000": "no_data",
+  "02001": "no_additional_dynamic_result_sets_returned",
+  "03000": "sql_statement_not_yet_complete",
+  "08000": "connection_exception",
+  "08001": "sqlclient_unable_to_establish_sqlconnection",
+  "08003": "connection_does_not_exist",
+  "08004": "sqlserver_rejected_establishment_of_sqlconnection",
+  "08006": "connection_failure",
+  "08007": "transaction_resolution_unknown",
+  "08P01": "protocol_violation",
+  "09000": "triggered_action_exception",
+  "0A000": "feature_not_supported",
+  "0B000": "invalid_transaction_initiation",
+  "0F000": "locator_exception",
+  "0F001": "invalid_locator_specification",
+  "0L000": "invalid_grantor",
+  "0LP01": "invalid_grant_operation",
+  "0P000": "invalid_role_specification",
+  "0Z000": "diagnostics_exception",
+  "0Z002": "stacked_diagnostics_accessed_without_active_handler",
+  "10608": "invalid_argument_for_xquery",
+  "20000": "case_not_found",
+  "21000": "cardinality_violation",
+  "22000": "data_exception",
+  "22001": "string_data_right_truncation",
+  "22002": "null_value_no_indicator_parameter",
+  "22003": "numeric_value_out_of_range",
+  "22004": "null_value_not_allowed",
+  "22005": "error_in_assignment",
+  "22007": "invalid_datetime_format",
+  "22008": "datetime_field_overflow",
+  "22009": "invalid_time_zone_displacement_value",
+  "2200B": "escape_character_conflict",
+  "2200C": "invalid_use_of_escape_character",
+  "2200D": "invalid_escape_octet",
+  "2200F": "zero_length_character_string",
+  "2200G": "most_specific_type_mismatch",
+  "2200H": "sequence_generator_limit_exceeded",
+  "2200L": "not_an_xml_document",
+  "2200M": "invalid_xml_document",
+  "2200N": "invalid_xml_content",
+  "2200S": "invalid_xml_comment",
+  "2200T": "invalid_xml_processing_instruction",
+  "22010": "invalid_indicator_parameter_value",
+  "22011": "substring_error",
+  "22012": "division_by_zero",
+  "22013": "invalid_preceding_or_following_size",
+  "22014": "invalid_argument_for_ntile_function",
+  "22015": "interval_field_overflow",
+  "22016": "invalid_argument_for_nth_value_function",
+  "22018": "invalid_character_value_for_cast",
+  "22019": "invalid_escape_character",
+  "2201B": "invalid_regular_expression",
+  "2201E": "invalid_argument_for_logarithm",
+  "2201F": "invalid_argument_for_power_function",
+  "2201G": "invalid_argument_for_width_bucket_function",
+  "2201W": "invalid_row_count_in_limit_clause",
+  "2201X": "invalid_row_count_in_result_offset_clause",
+  "22020": "invalid_limit_value",
+  "22021": "character_not_in_repertoire",
+  "22022": "indicator_overflow",
+  "22023": "invalid_parameter_value",
+  "22024": "unterminated_c_string",
+  "22025": "invalid_escape_sequence",
+  "22026": "string_data_length_mismatch",
+  "22027": "trim_error",
+  "2202E": "array_subscript_error",
+  "2202G": "invalid_tablesample_repeat",
+  "2202H": "invalid_tablesample_argument",
+  "22030": "duplicate_json_object_key_value",
+  "22031": "invalid_argument_for_sql_json_datetime_function",
+  "22032": "invalid_json_text",
+  "22033": "invalid_sql_json_subscript",
+  "22034": "more_than_one_sql_json_item",
+  "22035": "no_sql_json_item",
+  "22036": "non_numeric_sql_json_item",
+  "22037": "non_unique_keys_in_a_json_object",
+  "22038": "singleton_sql_json_item_required",
+  "22039": "sql_json_array_not_found",
+  "2203A": "sql_json_member_not_found",
+  "2203B": "sql_json_number_not_found",
+  "2203C": "sql_json_object_not_found",
+  "2203D": "too_many_json_array_elements",
+  "2203E": "too_many_json_object_members",
+  "2203F": "sql_json_scalar_required",
+  "2203G": "sql_json_item_cannot_be_cast_to_target_type",
+  "22P01": "floating_point_exception",
+  "22P02": "invalid_text_representation",
+  "22P03": "invalid_binary_representation",
+  "22P04": "bad_copy_file_format",
+  "22P05": "untranslatable_character",
+  "22P06": "nonstandard_use_of_escape_character",
+  "23000": "integrity_constraint_violation",
+  "23001": "restrict_violation",
+  "23502": "not_null_violation",
+  "23503": "foreign_key_violation",
+  "23505": "unique_violation",
+  "23514": "check_violation",
+  "23P01": "exclusion_violation",
+  "24000": "invalid_cursor_state",
+  "25000": "invalid_transaction_state",
+  "25001": "active_sql_transaction",
+  "25002": "branch_transaction_already_active",
+  "25003": "inappropriate_access_mode_for_branch_transaction",
+  "25004": "inappropriate_isolation_level_for_branch_transaction",
+  "25005": "no_active_sql_transaction_for_branch_transaction",
+  "25006": "read_only_sql_transaction",
+  "25007": "schema_and_data_statement_mixing_not_supported",
+  "25008": "held_cursor_requires_same_isolation_level",
+  "25P01": "no_active_sql_transaction",
+  "25P02": "in_failed_sql_transaction",
+  "25P03": "idle_in_transaction_session_timeout",
+  "25P04": "transaction_timeout",
+  "26000": "invalid_sql_statement_name",
+  "27000": "triggered_data_change_violation",
+  "28000": "invalid_authorization_specification",
+  "28P01": "invalid_password",
+  "2B000": "dependent_privilege_descriptors_still_exist",
+  "2BP01": "dependent_objects_still_exist",
+  "2D000": "invalid_transaction_termination",
+  "2F000": "sql_routine_exception",
+  "2F002": "modifying_sql_data_not_permitted",
+  "2F003": "prohibited_sql_statement_attempted",
+  "2F004": "reading_sql_data_not_permitted",
+  "2F005": "function_executed_no_return_statement",
+  "34000": "invalid_cursor_name",
+  "38000": "external_routine_exception",
+  "38001": "containing_sql_not_permitted",
+  "38002": "modifying_sql_data_not_permitted",
+  "38003": "prohibited_sql_statement_attempted",
+  "38004": "reading_sql_data_not_permitted",
+  "39000": "external_routine_invocation_exception",
+  "39001": "invalid_sqlstate_returned",
+  "39004": "null_value_not_allowed",
+  "39P01": "trigger_protocol_violated",
+  "39P02": "srf_protocol_violated",
+  "39P03": "event_trigger_protocol_violated",
+  "3B000": "savepoint_exception",
+  "3B001": "invalid_savepoint_specification",
+  "3D000": "invalid_catalog_name",
+  "3F000": "invalid_schema_name",
+  "40000": "transaction_rollback",
+  "40001": "serialization_failure",
+  "40002": "transaction_integrity_constraint_violation",
+  "40003": "statement_completion_unknown",
+  "40P01": "deadlock_detected",
+  "42000": "syntax_error_or_access_rule_violation",
+  "42501": "insufficient_privilege",
+  "42601": "syntax_error",
+  "42602": "invalid_name",
+  "42611": "invalid_column_definition",
+  "42622": "name_too_long",
+  "42701": "duplicate_column",
+  "42702": "ambiguous_column",
+  "42703": "undefined_column",
+  "42704": "undefined_object",
+  "42710": "duplicate_object",
+  "42712": "duplicate_alias",
+  "42723": "duplicate_function",
+  "42725": "ambiguous_function",
+  "42803": "grouping_error",
+  "42804": "datatype_mismatch",
+  "42809": "wrong_object_type",
+  "42830": "invalid_foreign_key",
+  "42846": "cannot_coerce",
+  "42883": "undefined_function",
+  "428C9": "generated_always",
+  "42939": "reserved_name",
+  "42P01": "undefined_table",
+  "42P02": "undefined_parameter",
+  "42P03": "duplicate_cursor",
+  "42P04": "duplicate_database",
+  "42P05": "duplicate_prepared_statement",
+  "42P06": "duplicate_schema",
+  "42P07": "duplicate_table",
+  "42P08": "ambiguous_parameter",
+  "42P09": "ambiguous_alias",
+  "42P10": "invalid_column_reference",
+  "42P11": "invalid_cursor_definition",
+  "42P12": "invalid_database_definition",
+  "42P13": "invalid_function_definition",
+  "42P14": "invalid_prepared_statement_definition",
+  "42P15": "invalid_schema_definition",
+  "42P16": "invalid_table_definition",
+  "42P17": "invalid_object_definition",
+  "42P18": "indeterminate_datatype",
+  "42P19": "invalid_recursion",
+  "42P20": "windowing_error",
+  "42P21": "collation_mismatch",
+  "42P22": "indeterminate_collation",
+  "44000": "with_check_option_violation",
+  "53000": "insufficient_resources",
+  "53100": "disk_full",
+  "53200": "out_of_memory",
+  "53300": "too_many_connections",
+  "53400": "configuration_limit_exceeded",
+  "54000": "program_limit_exceeded",
+  "54001": "statement_too_complex",
+  "54011": "too_many_columns",
+  "54023": "too_many_arguments",
+  "55000": "object_not_in_prerequisite_state",
+  "55006": "object_in_use",
+  "55P02": "cant_change_runtime_param",
+  "55P03": "lock_not_available",
+  "55P04": "unsafe_new_enum_value_usage",
+  "57000": "operator_intervention",
+  "57014": "query_canceled",
+  "57P01": "admin_shutdown",
+  "57P02": "crash_shutdown",
+  "57P03": "cannot_connect_now",
+  "57P04": "database_dropped",
+  "57P05": "idle_session_timeout",
+  "58000": "system_error",
+  "58030": "io_error",
+  "58P01": "undefined_file",
+  "58P02": "duplicate_file",
+  "58P03": "file_name_too_long",
+  "72000": "snapshot_too_old",
+  "F0000": "config_file_error",
+  "F0001": "lock_file_exists",
+  "HV000": "fdw_error",
+  "HV001": "fdw_out_of_memory",
+  "HV002": "fdw_dynamic_parameter_value_needed",
+  "HV004": "fdw_invalid_data_type",
+  "HV005": "fdw_column_name_not_found",
+  "HV006": "fdw_invalid_data_type_descriptors",
+  "HV007": "fdw_invalid_column_name",
+  "HV008": "fdw_invalid_column_number",
+  "HV009": "fdw_invalid_use_of_null_pointer",
+  "HV00A": "fdw_invalid_string_format",
+  "HV00B": "fdw_invalid_handle",
+  "HV00C": "fdw_invalid_option_index",
+  "HV00D": "fdw_invalid_option_name",
+  "HV00J": "fdw_option_name_not_found",
+  "HV00K": "fdw_reply_handle",
+  "HV00L": "fdw_unable_to_create_execution",
+  "HV00M": "fdw_unable_to_create_reply",
+  "HV00N": "fdw_unable_to_establish_connection",
+  "HV00P": "fdw_no_schemas",
+  "HV00Q": "fdw_schema_not_found",
+  "HV00R": "fdw_table_not_found",
+  "HV010": "fdw_function_sequence_error",
+  "HV014": "fdw_too_many_handles",
+  "HV021": "fdw_inconsistent_descriptor_information",
+  "HV024": "fdw_invalid_attribute_value",
+  "HV090": "fdw_invalid_string_length_or_buffer_length",
+  "HV091": "fdw_invalid_descriptor_field_identifier",
+  "P0000": "plpgsql_error",
+  "P0001": "raise_exception",
+  "P0002": "no_data_found",
+  "P0003": "too_many_rows",
+  "P0004": "assert_failure",
+  "XX000": "internal_error",
+  "XX001": "data_corrupted",
+  "XX002": "index_corrupted"
+};
+
 // src/redaction.ts
 var REDACTED_COLUMN = "[REDACTED:column]";
 var REDACTED_NOT_ALLOWED = "[REDACTED:not_allowed]";
@@ -238,7 +506,7 @@ function redactValue(value, counts) {
   if (Array.isArray(value)) return value.map((item) => redactValue(item, counts));
   if (isPlainObject(value)) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, redactValue(item, counts)])
+      Object.entries(value).map(([key, item]) => [redactText(key, counts), redactValue(item, counts)])
     );
   }
   return value;
@@ -268,18 +536,27 @@ function redactRows(rows, columns, policy) {
   });
   return { rows: result, counts };
 }
-var ERROR_VALUE_PATTERNS = [
-  /(Key \([^\n]*?\)=\()[^\n]*(\))/g,
-  /(Failing row contains \()[^\n]*(\))/g,
-  /(: ")[^\n]*(")/g
-];
-function redactErrorMessage(message, policy) {
+var QUOTED = /"[^"]*"/g;
+var KEY_VALUES = /(Key \([^)]*\)=\().*?(\)(?: already exists| is not present| is still referenced|\.|(?![\s\S])))/gs;
+var FAILING_ROW = /(Failing row contains \().*(\))/gs;
+function conditionName(sqlstate) {
+  return sqlstate ? SQLSTATE_NAMES[sqlstate] : void 0;
+}
+function condition(sqlstate) {
+  const name = conditionName(sqlstate);
+  if (name && sqlstate) return `${name}, SQLSTATE ${sqlstate}`;
+  return sqlstate ? `SQLSTATE ${sqlstate}` : "unknown condition";
+}
+function redactError(message, policy, sqlstate) {
   if (!policyEnabled(policy)) return message;
-  for (const pattern of ERROR_VALUE_PATTERNS) {
-    message = message.replace(pattern, "$1[REDACTED]$2");
+  if (policy.allowed.length > 0) {
+    return `${condition(sqlstate)} (error details hidden because an allow list is active)`;
   }
+  message = message.replace(KEY_VALUES, "$1[REDACTED]$2");
+  message = message.replace(FAILING_ROW, "$1[REDACTED]$2");
+  message = message.replace(QUOTED, '"[REDACTED]"');
   if (policy.pii) message = redactText(message, {});
-  return message;
+  return sqlstate ? `${message} (${condition(sqlstate)})` : message;
 }
 
 // src/settings.ts
@@ -308,8 +585,8 @@ var connectionInputSchema = z.object({
   default: z.boolean().optional(),
   /** Override REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS for this connection. */
   redactPii: z.boolean().optional(),
-  redactColumns: z.union([z.string(), z.array(z.string())]).optional(),
-  allowedColumns: z.union([z.string(), z.array(z.string())]).optional()
+  redactColumns: z.union([z.string(), z.array(z.string())]).nullable().optional(),
+  allowedColumns: z.union([z.string(), z.array(z.string())]).nullable().optional()
 }).refine((c) => c.url !== void 0 || c.user !== void 0 && c.database !== void 0, {
   message: 'each connection needs either "url" or both "user" and "database"'
 });
@@ -366,10 +643,17 @@ function fromUrl(alias, url) {
     sslmode
   };
 }
+function parseBoolean(value, name) {
+  if (value === void 0) return false;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "on", "t", "true", "y", "yes"].includes(normalized)) return true;
+  if (["0", "off", "f", "false", "n", "no"].includes(normalized)) return false;
+  throw new Error(`${name} must be true or false, got "${value}"`);
+}
 function globalRedaction() {
   try {
     return {
-      pii: process.env.REDACT_PII === "true",
+      pii: parseBoolean(process.env.REDACT_PII, "REDACT_PII"),
       columns: parseColumnRules(process.env.REDACT_COLUMNS, "REDACT_COLUMNS"),
       allowed: parseColumnRules(process.env.ALLOWED_COLUMNS, "ALLOWED_COLUMNS")
     };
@@ -617,6 +901,11 @@ var PostgresClientError = class extends Error {
     this.name = "PostgresClientError";
   }
 };
+var RedactionFailedError = class extends PostgresClientError {
+  constructor() {
+    super("Query failed: the result was withheld because redaction could not be applied");
+  }
+};
 var PostgresClient = class {
   pool;
   /** Which configured connection this client talks to. */
@@ -647,13 +936,19 @@ var PostgresClient = class {
     const { allowWrite = false, maxRows = settings.maxRows } = options;
     const validatedQuery = validateQuery(query, allowWrite);
     const client = await this.pool.connect();
+    let inTransaction = false;
     try {
+      if (!allowWrite && policyEnabled(this.redaction)) {
+        await client.query("BEGIN READ ONLY");
+        inTransaction = true;
+      }
       const result = await client.query(validatedQuery, params);
       const isSelect = validatedQuery.toUpperCase().trim().startsWith("SELECT");
+      let response;
       if (isSelect) {
         const rows = result.rows.slice(0, maxRows);
         const truncated = result.rows.length > maxRows;
-        const response = {
+        response = {
           success: true,
           rows,
           row_count: rows.length,
@@ -661,14 +956,18 @@ var PostgresClient = class {
           truncated
         };
         if (policyEnabled(this.redaction)) {
-          const meta = await this.columnSources(client, result.fields ?? []);
-          const redacted = redactRows(rows, meta, this.redaction);
-          response.rows = redacted.rows;
-          response.redacted = redacted.counts;
+          try {
+            const meta = await this.columnSources(client, result.fields ?? []);
+            const redacted = redactRows(rows, meta, this.redaction);
+            response.rows = redacted.rows;
+            response.redacted = redacted.counts;
+          } catch (error) {
+            console.error(`Redaction failed: ${error?.name ?? "unknown"}`);
+            throw new RedactionFailedError();
+          }
         }
-        return response;
       } else {
-        return {
+        response = {
           success: true,
           rows: [],
           row_count: result.rowCount || 0,
@@ -676,14 +975,28 @@ var PostgresClient = class {
           message: `${result.rowCount} rows affected`
         };
       }
+      if (inTransaction) {
+        await client.query("COMMIT");
+        inTransaction = false;
+      }
+      return response;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      throw new PostgresClientError(
-        `Query failed: ${redactErrorMessage(message, this.redaction)}`
-      );
+      if (inTransaction) await client.query("ROLLBACK").catch(() => void 0);
+      if (error instanceof RedactionFailedError) throw error;
+      throw new PostgresClientError(`Query failed: ${this.errorText(error)}`);
     } finally {
       client.release();
     }
+  }
+  /**
+   * An error as the model may see it. node-postgres puts only the primary
+   * message in `message` (DETAIL and CONTEXT live in other fields, never read
+   * here) and the SQLSTATE in `code`.
+   */
+  errorText(error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const code = error?.code;
+    return redactError(message, this.redaction, typeof code === "string" ? code : void 0);
   }
   /**
    * Resolve each result column to the table column it was read from.
@@ -702,7 +1015,10 @@ var PostgresClient = class {
          FROM pg_attribute a
          JOIN pg_class c ON c.oid = a.attrelid
          JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped`,
+         WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND NOT a.attisdropped
+           -- A temporary table can shadow a permanent one of the same name,
+           -- so it is never a trusted source.
+           AND c.relpersistence <> 't'`,
         [oids]
       );
       for (const row of result.rows) {
@@ -731,16 +1047,21 @@ var PostgresClient = class {
     }
     explainCmd += `) ${query}`;
     const client = await this.pool.connect();
+    const readOnly = policyEnabled(this.redaction);
     try {
-      const result = await client.query(explainCmd);
-      if (result.rows.length > 0) {
-        const plan = Object.values(result.rows[0])[0];
-        return { success: true, plan };
+      if (readOnly) await client.query("BEGIN READ ONLY");
+      try {
+        const result = await client.query(explainCmd);
+        if (result.rows.length > 0) {
+          const plan = Object.values(result.rows[0])[0];
+          return { success: true, plan };
+        }
+        return { success: false, error: "No plan returned" };
+      } finally {
+        if (readOnly) await client.query("ROLLBACK").catch(() => void 0);
       }
-      return { success: false, error: "No plan returned" };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, error: redactErrorMessage(message, this.redaction) };
+      return { success: false, error: this.errorText(error) };
     } finally {
       client.release();
     }

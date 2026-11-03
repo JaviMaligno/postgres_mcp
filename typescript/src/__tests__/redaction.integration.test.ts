@@ -264,3 +264,72 @@ describe.skipIf(!hasDatabase)('redaction against a live server', () => {
     );
   });
 });
+
+describe.skipIf(!hasDatabase)('review regressions against a live server', () => {
+  const ALLOWED = 'support_tickets.id,support_tickets.subject';
+  const errorOf = (sql: string) =>
+    run(sql).then(
+      () => '',
+      (e: Error) => e.message
+    );
+
+  afterEach(() => {
+    resetClient();
+  });
+
+  afterAll(() => {
+    for (const key of KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    resetSettings();
+  });
+
+  it('hides error details under an allow list', async () => {
+    configure({ ALLOWED_COLUMNS: ALLOWED });
+    for (const sql of [
+      "SELECT current_setting(string_agg(notes, ',')) FROM support_tickets",
+      'SELECT subject::regclass FROM support_tickets WHERE id = 2',
+      "SELECT ('x' || chr(10) || notes)::int FROM support_tickets WHERE id = 1",
+      'SELECT make_date(2020, 1, (amount * 100)::int) FROM support_tickets WHERE id = 1',
+    ]) {
+      const error = await errorOf(sql);
+      expect(error, sql).toContain('hidden because an allow list is active');
+      for (const secret of ['ana', 'Ana', 'Monitor', '129999']) {
+        expect(error, sql).not.toContain(secret);
+      }
+    }
+  });
+
+  it('keeps the condition name so the model can fix its SQL', async () => {
+    configure({ ALLOWED_COLUMNS: ALLOWED });
+    expect(await errorOf('SELECT nope FROM support_tickets')).toContain(
+      'undefined_column, SQLSTATE 42703'
+    );
+  });
+
+  it('stops temp tables from shadowing an allowed table', async () => {
+    configure({ ALLOWED_COLUMNS: 'support_tickets.id' });
+    expect(
+      await errorOf('SELECT notes AS id INTO TEMP support_tickets FROM public.support_tickets')
+    ).toContain('read_only_sql_transaction');
+    const ids = (await run('SELECT id FROM support_tickets ORDER BY id')).rows.map((r) => r.id);
+    expect(ids).toEqual([1, 2]);
+  });
+
+  it('refuses data-modifying CTEs under redaction', async () => {
+    configure({ REDACT_PII: 'true' });
+    expect(
+      await errorOf('WITH u AS (UPDATE support_tickets SET subject = subject RETURNING 1) SELECT 1')
+    ).toContain('read_only_sql_transaction');
+  });
+
+  it('does not force read-only reads when nothing is configured', async () => {
+    configure();
+    expect((await run("SELECT nextval('customers_id_seq') > 0 AS ok")).rows).toEqual([{ ok: true }]);
+    configure({ REDACT_PII: 'true' });
+    expect(await errorOf("SELECT nextval('customers_id_seq') > 0 AS ok")).toContain(
+      'read_only_sql_transaction'
+    );
+  });
+});

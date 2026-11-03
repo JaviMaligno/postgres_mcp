@@ -22,9 +22,20 @@ from postgres_mcp.settings import (
 from postgres_mcp.security import (
     validate_query,
 )
-from postgres_mcp.redaction import redact_error_message, redact_rows
+from postgres_mcp.redaction import redact_error, redact_rows
 
 logger = logging.getLogger(__name__)
+
+
+def _primary_message(error: psycopg2.Error) -> str:
+    """The error's primary message, without the DETAIL, HINT or CONTEXT lines
+    that str(error) appends (they quote row values)."""
+    diag = getattr(error, "diag", None)
+    primary = getattr(diag, "message_primary", None)
+    if primary:
+        return primary
+    lines = str(error).strip().splitlines()
+    return lines[0] if lines else type(error).__name__
 
 
 class PostgresClientError(Exception):
@@ -134,6 +145,12 @@ class PostgresClient:
         max_rows = max_rows or self.settings.max_rows
 
         with self.get_connection() as conn:
+            if not allow_write and self.redaction.enabled:
+                # With redaction on, reads run in a READ ONLY transaction:
+                # SELECT ... INTO TEMP could otherwise create a table that
+                # shadows an allowed one. Only then, so that setups without
+                # redaction keep functions like nextval() working in `query`.
+                conn.set_session(readonly=True)
             cursor = conn.cursor()
 
             try:
@@ -160,10 +177,19 @@ class PostgresClient:
                         "truncated": truncated,
                     }
                     if self.redaction.enabled:
-                        meta = self._column_sources(cursor, description)
-                        response["rows"], response["redacted"] = redact_rows(
-                            result_rows, meta, self.redaction
-                        )
+                        try:
+                            meta = self._column_sources(cursor, description)
+                            response["rows"], response["redacted"] = redact_rows(
+                                result_rows, meta, self.redaction
+                            )
+                        except Exception as e:
+                            # Fail closed: an unredacted result never goes out,
+                            # and neither does an error that might quote it.
+                            logger.error("Redaction failed: %s", type(e).__name__)
+                            raise PostgresClientError(
+                                "Query failed: the result was withheld because "
+                                "redaction could not be applied"
+                            ) from None
                     return response
                 else:
                     conn.commit()
@@ -176,8 +202,10 @@ class PostgresClient:
                     }
             except psycopg2.Error as e:
                 conn.rollback()
-                message = redact_error_message(str(e), self.redaction)
-                raise PostgresClientError(f"Query failed: {message}") from e
+                if not self.redaction.enabled:
+                    raise PostgresClientError(f"Query failed: {e}") from e
+                message = redact_error(_primary_message(e), self.redaction, e.pgcode)
+                raise PostgresClientError(f"Query failed: {message}") from None
             finally:
                 cursor.close()
 
@@ -209,6 +237,9 @@ class PostgresClient:
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                 WHERE a.attrelid = ANY(%s::oid[]) AND a.attnum > 0
                   AND NOT a.attisdropped
+                  -- A temporary table can shadow a permanent one of the same
+                  -- name, so it is never a trusted source.
+                  AND c.relpersistence <> 't'
                 """,
                 (oids,),
             )
@@ -251,16 +282,25 @@ class PostgresClient:
             explain_cmd += ", ANALYZE, BUFFERS"
         explain_cmd += f") {validated_query}"
 
-        with self.get_cursor() as cursor:
+        with self.get_connection() as conn:
+            if self.redaction.enabled:
+                # EXPLAIN ANALYZE executes the statement (see execute_query).
+                conn.set_session(readonly=True)
+            cursor = conn.cursor()
             try:
-                cursor.execute(explain_cmd)
-            except psycopg2.Error as e:
-                # EXPLAIN ANALYZE runs the query, so its errors can echo values.
-                if not self.redaction.enabled:
-                    raise
-                message = redact_error_message(str(e), self.redaction)
-                raise PostgresClientError(f"Query failed: {message}") from e
-            result = cursor.fetchone()
+                try:
+                    cursor.execute(explain_cmd)
+                except psycopg2.Error as e:
+                    # EXPLAIN ANALYZE runs the query, so its errors can echo values.
+                    if not self.redaction.enabled:
+                        raise
+                    message = redact_error(
+                        _primary_message(e), self.redaction, e.pgcode
+                    )
+                    raise PostgresClientError(f"Query failed: {message}") from None
+                result = cursor.fetchone()
+            finally:
+                cursor.close()
 
             if result:
                 plan = list(result.values())[0]

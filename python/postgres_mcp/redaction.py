@@ -99,8 +99,9 @@ def parse_column_rules(value: object, where: str) -> tuple[str, ...]:
 
 
 def _glob(pattern: str, value: str) -> bool:
-    regex = "^" + ".*".join(re.escape(part) for part in pattern.split("*")) + "$"
-    return re.match(regex, value.lower(), re.DOTALL) is not None
+    regex = ".*".join(re.escape(part) for part in pattern.split("*"))
+    # fullmatch, not ^...$: $ would also accept a trailing newline.
+    return re.fullmatch(regex, value.lower(), re.DOTALL) is not None
 
 
 def rule_matches(rule: str, name: str, source: Optional[Source]) -> bool:
@@ -386,7 +387,13 @@ def redact_value(value: Any, counts: dict[str, int]) -> Any:
     if isinstance(value, list):
         return [redact_value(item, counts) for item in value]
     if isinstance(value, dict):
-        return {key: redact_value(item, counts) for key, item in value.items()}
+        # Keys too: {"ana@corp.es": "owner"} is personal data in the key.
+        return {
+            (redact_text(key, counts) if isinstance(key, str) else key): redact_value(
+                item, counts
+            )
+            for key, item in value.items()
+        }
     return value
 
 
@@ -418,23 +425,64 @@ def redact_rows(
 
 # ==================== ERROR MESSAGES ====================
 
-# PostgreSQL echoes row values in some errors, e.g.
-#   DETAIL:  Key (email)=(ana@corp.es) already exists.
-#   DETAIL:  Failing row contains (7, ana@corp.es, null).
-#   invalid input syntax for type integer: "ana@corp.es"
-_ERROR_VALUE_PATTERNS = [
-    re.compile(r"(Key \([^\n]*?\)=\()[^\n]*(\))"),
-    re.compile(r"(Failing row contains \()[^\n]*(\))"),
-    re.compile(r'(: ")[^\n]*(")'),
-]
+# PostgreSQL repeats values in error messages in more shapes than any rewriter
+# can enumerate: invalid input syntax for type integer: "<value>",
+# unrecognized configuration parameter "<value>" (current_setting(col) dumps a
+# column this way), date field value out of range: 2020-01-<number>, and the
+# DETAIL and CONTEXT lines. So:
+#   * with an allow list, an error says only which condition was raised;
+#   * otherwise only the primary message is kept (callers pass it, never the
+#     DETAIL or CONTEXT), with every quoted string masked, newlines included.
+# Numbers outside quotes survive the second form: deny lists and detection
+# guard against accidents, the allow list is the strict mode.
+_QUOTED = re.compile(r'"[^"]*"')
+# (?![\s\S]) is end-of-input in both Python and JavaScript ($ is not).
+_KEY_VALUES = re.compile(
+    r"(Key \([^)]*\)=\().*?"
+    r"(\)(?: already exists| is not present| is still referenced|\.|(?![\s\S])))",
+    re.DOTALL,
+)
+_FAILING_ROW = re.compile(r"(Failing row contains \().*(\))", re.DOTALL)
 
 
-def redact_error_message(message: str, policy: RedactionPolicy) -> str:
-    """Strip row values PostgreSQL echoes back in error messages."""
+def condition_name(sqlstate: Optional[str]) -> Optional[str]:
+    """PostgreSQL condition name for a SQLSTATE, e.g. 42P01 -> undefined_table."""
+    if not sqlstate:
+        return None
+    from psycopg2 import errorcodes
+
+    try:
+        name = errorcodes.lookup(sqlstate)
+    except KeyError:
+        return None
+    return name.lower() if isinstance(name, str) else None
+
+
+def _condition(sqlstate: Optional[str]) -> str:
+    name = condition_name(sqlstate)
+    if name and sqlstate:
+        return f"{name}, SQLSTATE {sqlstate}"
+    return f"SQLSTATE {sqlstate}" if sqlstate else "unknown condition"
+
+
+def redact_error(
+    message: str, policy: RedactionPolicy, sqlstate: Optional[str] = None
+) -> str:
+    """Make a database error safe to show the model under ``policy``.
+
+    ``message`` must be the primary message only. Returns it unchanged when
+    the policy is disabled.
+    """
     if not policy.enabled:
         return message
-    for pattern in _ERROR_VALUE_PATTERNS:
-        message = pattern.sub(r"\1[REDACTED]\2", message)
+    if policy.allowed:
+        return (
+            f"{_condition(sqlstate)} (error details hidden because an allow list "
+            "is active)"
+        )
+    message = _KEY_VALUES.sub(r"\1[REDACTED]\2", message)
+    message = _FAILING_ROW.sub(r"\1[REDACTED]\2", message)
+    message = _QUOTED.sub('"[REDACTED]"', message)
     if policy.pii:
         message = redact_text(message, {})
-    return message
+    return f"{message} ({_condition(sqlstate)})" if sqlstate else message

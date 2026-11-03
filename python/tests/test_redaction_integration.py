@@ -251,3 +251,88 @@ def test_per_connection_policy_overrides_the_global_one(configure, monkeypatch):
         "SELECT ref FROM support_tickets WHERE id = 1", database="open"
     )
     assert opened["rows"][0]["ref"] == "[REDACTED:in_aadhaar]"
+
+
+def test_a_redaction_failure_withholds_the_result(configure, monkeypatch):
+    """Fail closed: neither the rows nor the exception text reach the model."""
+    from postgres_mcp import postgres_client
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("boom while reading ana.garcia@corp.es")
+
+    configure(REDACT_PII="true")
+    monkeypatch.setattr(postgres_client, "redact_rows", explode)
+    result = server.query("SELECT notes FROM support_tickets WHERE id = 1")
+    assert "rows" not in result
+    assert "withheld" in result["error"]
+    assert "ana.garcia" not in result["error"]
+
+
+class TestErrorChannel:
+    """Errors repeat values in many shapes; none may carry data out."""
+
+    ALLOWED = "support_tickets.id,support_tickets.subject"
+    LEAKY = (
+        # Dumps a whole column into "unrecognized configuration parameter".
+        "SELECT current_setting(string_agg(notes, ',')) FROM support_tickets",
+        "SELECT subject::regclass FROM support_tickets WHERE id = 2",
+        "SELECT ('x' || chr(10) || notes)::int FROM support_tickets WHERE id = 1",
+        # Numbers appear unquoted in range errors.
+        "SELECT make_date(2020, 1, (amount * 100)::int) FROM support_tickets "
+        "WHERE id = 1",
+    )
+
+    def test_allow_list_hides_error_details(self, configure):
+        configure(ALLOWED_COLUMNS=self.ALLOWED)
+        for sql in self.LEAKY:
+            error = server.query(sql)["error"]
+            assert "hidden because an allow list is active" in error, sql
+            for secret in ("ana", "Ana", "Monitor", "129999"):
+                assert secret not in error, (sql, error)
+
+    def test_condition_name_is_kept_so_the_model_can_fix_its_sql(self, configure):
+        configure(ALLOWED_COLUMNS=self.ALLOWED)
+        error = server.query("SELECT nope FROM support_tickets")["error"]
+        assert "undefined_column, SQLSTATE 42703" in error
+
+    def test_detail_and_context_lines_never_leave(self, configure):
+        configure(REDACT_COLUMNS="support_tickets.notes")
+        error = server.query("SELECT notes::jsonb FROM support_tickets WHERE id = 1")[
+            "error"
+        ]
+        assert "ana.garcia" not in error
+        assert "DETAIL" not in error and "CONTEXT" not in error
+        assert "invalid_text_representation" in error
+
+
+class TestReadOnlyUnderRedaction:
+    def test_temp_tables_cannot_shadow_an_allowed_table(self, configure):
+        configure(ALLOWED_COLUMNS="support_tickets.id")
+        created = server.query(
+            "SELECT notes AS id INTO TEMP support_tickets FROM public.support_tickets"
+        )
+        assert "error" in created
+        assert "read_only_sql_transaction" in created["error"]
+        ids = [
+            row["id"]
+            for row in run("SELECT id FROM support_tickets ORDER BY id")["rows"]
+        ]
+        assert ids == [1, 2]
+
+    def test_data_modifying_ctes_are_refused(self, configure):
+        configure(REDACT_PII="true")
+        result = server.query(
+            "WITH u AS (UPDATE support_tickets SET subject = subject RETURNING 1) "
+            "SELECT 1"
+        )
+        assert "error" in result
+
+    def test_without_redaction_reads_are_not_forced_read_only(self, configure):
+        """Opt-in: nothing configured, nothing changes (nextval keeps working)."""
+        configure()
+        assert run("SELECT nextval('customers_id_seq') > 0 AS ok")["rows"] == [
+            {"ok": True}
+        ]
+        configure(REDACT_PII="true")
+        refused = server.query("SELECT nextval('customers_id_seq') > 0 AS ok")
+        assert "read_only_sql_transaction" in refused["error"]

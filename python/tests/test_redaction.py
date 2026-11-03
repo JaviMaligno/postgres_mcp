@@ -1,6 +1,7 @@
 """Unit tests for personal-data redaction (no database needed)."""
 
 import json
+import re
 import random
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from postgres_mcp.redaction import (
     RedactionPolicy,
     columns_to_mask,
     parse_column_rules,
-    redact_error_message,
+    redact_error,
     redact_rows,
     redact_text,
     redact_value,
@@ -232,53 +233,55 @@ class TestRedactRows:
         assert self.ROWS == original
 
 
+ERROR_POLICIES = {
+    "none": RedactionPolicy(),
+    "deny": RedactionPolicy(columns=("email",)),
+    "pii": RedactionPolicy(pii=True),
+    "allow": RedactionPolicy(allowed=("customers.id",)),
+}
+
+
 class TestErrorMessages:
-    POLICY = RedactionPolicy(columns=("email",))
+    @pytest.mark.parametrize(
+        "case", VECTORS["errors"], ids=[c["message"][:40] for c in VECTORS["errors"]]
+    )
+    def test_shared_error_vector(self, case):
+        policy = ERROR_POLICIES[case["policy"]]
+        assert redact_error(case["message"], policy, case["sqlstate"]) == case["output"]
 
-    def test_unique_violation_detail(self):
-        message = (
-            'duplicate key value violates unique constraint "customers_email_key"\n'
-            "DETAIL:  Key (email)=(ana@corp.es) already exists."
-        )
-        assert redact_error_message(message, self.POLICY) == (
-            'duplicate key value violates unique constraint "customers_email_key"\n'
-            "DETAIL:  Key (email)=([REDACTED]) already exists."
-        )
+    def test_sqlstate_names_match_the_typescript_table(self):
+        """Both implementations must name every condition the same way."""
+        from psycopg2 import errorcodes
 
-    def test_values_with_parentheses(self):
-        message = "DETAIL:  Key (name, phone)=(Ana (work), 600) already exists."
-        assert redact_error_message(message, self.POLICY) == (
-            "DETAIL:  Key (name, phone)=([REDACTED]) already exists."
-        )
+        table = (
+            Path(__file__).resolve().parents[2] / "typescript" / "src" / "sqlstate.ts"
+        ).read_text(encoding="utf-8")
+        entries = dict(re.findall(r"'([0-9A-Z]{5})': '([a-z_0-9]+)'", table))
+        assert len(entries) > 200
+        for code, name in entries.items():
+            assert errorcodes.lookup(code).lower() == name, code
 
-    def test_failing_row(self):
-        message = (
-            'new row for relation "customers" violates check constraint "c"\n'
-            "DETAIL:  Failing row contains (7, ana@corp.es, null)."
-        )
-        assert redact_error_message(message, self.POLICY).endswith(
-            "Failing row contains ([REDACTED])."
-        )
 
-    def test_invalid_input_syntax(self):
-        message = 'invalid input syntax for type integer: "ana@corp.es"'
-        assert redact_error_message(message, self.POLICY) == (
-            'invalid input syntax for type integer: "[REDACTED]"'
-        )
+class TestReviewRegressions:
+    def test_json_keys_are_scanned(self):
+        counts: dict[str, int] = {}
+        assert redact_value({"ana@corp.es": "owner"}, counts) == {
+            "[REDACTED:email]": "owner"
+        }
+        assert counts == {"email": 1}
 
-    def test_pii_policy_also_scans_the_rest(self):
-        message = "something mentioned ana@corp.es"
-        assert redact_error_message(message, RedactionPolicy(pii=True)) == (
-            "something mentioned [REDACTED:email]"
-        )
+    def test_glob_does_not_accept_a_trailing_newline(self):
+        assert not rule_matches("id", "id\n", None)
 
-    def test_messages_untouched_when_disabled(self):
-        message = "DETAIL:  Key (email)=(ana@corp.es) already exists."
-        assert redact_error_message(message, RedactionPolicy()) == message
-
-    def test_identifiers_in_errors_survive(self):
-        message = 'relation "customers" does not exist'
-        assert redact_error_message(message, self.POLICY) == message
+    def test_duplicate_result_names_are_masked_if_any_column_must_be(self):
+        # SELECT id, email AS id FROM customers: the row dict keeps one "id".
+        columns = [
+            {"name": "id", "source": ("public", "customers", "id")},
+            {"name": "id", "source": ("public", "customers", "email")},
+        ]
+        assert columns_to_mask(columns, RedactionPolicy(allowed=("customers.id",))) == {
+            "id": "[REDACTED:not_allowed]"
+        }
 
 
 class TestSettings:

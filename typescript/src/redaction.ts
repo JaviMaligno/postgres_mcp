@@ -23,6 +23,8 @@
  * are the only full guarantee.
  */
 
+import { SQLSTATE_NAMES } from './sqlstate.js';
+
 export const REDACTED_COLUMN = '[REDACTED:column]';
 export const REDACTED_NOT_ALLOWED = '[REDACTED:not_allowed]';
 const RULE_PATTERN = /^[^.\s,]+(\.[^.\s,]+){0,2}$/;
@@ -330,8 +332,9 @@ export function redactValue(value: unknown, counts: Counts): unknown {
   if (typeof value === 'string') return redactText(value, counts);
   if (Array.isArray(value)) return value.map((item) => redactValue(item, counts));
   if (isPlainObject(value)) {
+    // Keys too: {"ana@corp.es": "owner"} is personal data in the key.
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, redactValue(item, counts)])
+      Object.entries(value).map(([key, item]) => [redactText(key, counts), redactValue(item, counts)])
     );
   }
   return value;
@@ -370,22 +373,41 @@ export function redactRows(
 
 // ==================== ERROR MESSAGES ====================
 
-// PostgreSQL echoes row values in some errors, e.g.
-//   DETAIL:  Key (email)=(ana@corp.es) already exists.
-//   DETAIL:  Failing row contains (7, ana@corp.es, null).
-//   invalid input syntax for type integer: "ana@corp.es"
-const ERROR_VALUE_PATTERNS = [
-  /(Key \([^\n]*?\)=\()[^\n]*(\))/g,
-  /(Failing row contains \()[^\n]*(\))/g,
-  /(: ")[^\n]*(")/g,
-];
+// PostgreSQL repeats values in error messages in more shapes than any rewriter
+// can enumerate (current_setting(col) dumps a column into "unrecognized
+// configuration parameter", numbers appear unquoted in range errors). So with
+// an allow list an error names only its condition; otherwise only the primary
+// message is kept, with every quoted string masked, newlines included. See
+// the Python module for the full list of shapes.
+const QUOTED = /"[^"]*"/g;
+// (?![\s\S]) is end-of-input in both Python and JavaScript ($ is not).
+const KEY_VALUES =
+  /(Key \([^)]*\)=\().*?(\)(?: already exists| is not present| is still referenced|\.|(?![\s\S])))/gs;
+const FAILING_ROW = /(Failing row contains \().*(\))/gs;
 
-/** Strip row values PostgreSQL echoes back in error messages. */
-export function redactErrorMessage(message: string, policy: RedactionPolicy): string {
+/** PostgreSQL condition name for a SQLSTATE, e.g. 42P01 -> undefined_table. */
+export function conditionName(sqlstate?: string): string | undefined {
+  return sqlstate ? SQLSTATE_NAMES[sqlstate] : undefined;
+}
+
+function condition(sqlstate?: string): string {
+  const name = conditionName(sqlstate);
+  if (name && sqlstate) return `${name}, SQLSTATE ${sqlstate}`;
+  return sqlstate ? `SQLSTATE ${sqlstate}` : 'unknown condition';
+}
+
+/**
+ * Make a database error safe to show the model under `policy`. `message` must
+ * be the primary message only. Returned unchanged when the policy is disabled.
+ */
+export function redactError(message: string, policy: RedactionPolicy, sqlstate?: string): string {
   if (!policyEnabled(policy)) return message;
-  for (const pattern of ERROR_VALUE_PATTERNS) {
-    message = message.replace(pattern, '$1[REDACTED]$2');
+  if (policy.allowed.length > 0) {
+    return `${condition(sqlstate)} (error details hidden because an allow list is active)`;
   }
+  message = message.replace(KEY_VALUES, '$1[REDACTED]$2');
+  message = message.replace(FAILING_ROW, '$1[REDACTED]$2');
+  message = message.replace(QUOTED, '"[REDACTED]"');
   if (policy.pii) message = redactText(message, {});
-  return message;
+  return sqlstate ? `${message} (${condition(sqlstate)})` : message;
 }

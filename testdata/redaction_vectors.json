@@ -37,6 +37,22 @@
 
     {"input": "Ana <ana@corp.es>, tel +34 600 123 456, DNI 12345678Z", "output": "Ana <[REDACTED:email]>, tel [REDACTED:phone], DNI [REDACTED:es_dni]", "counts": {"email": 1, "phone": 1, "es_dni": 1}}
   ],
+  "_errors_comment": "Primary error messages as PostgreSQL produces them. policy: none = nothing configured, deny = REDACT_COLUMNS=email, pii = REDACT_PII=true, allow = ALLOWED_COLUMNS=customers.id.",
+  "errors": [
+    {"policy": "none", "sqlstate": "23505", "message": "Key (email)=(a@b.io) already exists.", "output": "Key (email)=(a@b.io) already exists."},
+    {"policy": "deny", "sqlstate": "22P02", "message": "invalid input syntax for type integer: \"ana@corp.es\"", "output": "invalid input syntax for type integer: \"[REDACTED]\" (invalid_text_representation, SQLSTATE 22P02)"},
+    {"policy": "deny", "sqlstate": "22P02", "message": "invalid input syntax for type integer: \"x\nAna Garcia\"", "output": "invalid input syntax for type integer: \"[REDACTED]\" (invalid_text_representation, SQLSTATE 22P02)"},
+    {"policy": "deny", "sqlstate": "42704", "message": "unrecognized configuration parameter \"a@b.io Ana\"", "output": "unrecognized configuration parameter \"[REDACTED]\" (undefined_object, SQLSTATE 42704)"},
+    {"policy": "deny", "sqlstate": "42P01", "message": "relation \"ana\" does not exist", "output": "relation \"[REDACTED]\" does not exist (undefined_table, SQLSTATE 42P01)"},
+    {"policy": "deny", "sqlstate": "22007", "message": "invalid value \"Ana\" for \"YYYY\"", "output": "invalid value \"[REDACTED]\" for \"[REDACTED]\" (invalid_datetime_format, SQLSTATE 22007)"},
+    {"policy": "deny", "sqlstate": null, "message": "Key (name, phone)=(Ana (work), 600) already exists.", "output": "Key (name, phone)=([REDACTED]) already exists."},
+    {"policy": "deny", "sqlstate": null, "message": "Failing row contains (7, ana@corp.es, null).", "output": "Failing row contains ([REDACTED])."},
+    {"policy": "deny", "sqlstate": "ZZ999", "message": "something odd", "output": "something odd (SQLSTATE ZZ999)"},
+    {"policy": "pii", "sqlstate": "22008", "message": "date field value out of range: 2020-01-99 for ana@corp.es", "output": "date field value out of range: 2020-01-99 for [REDACTED:email] (datetime_field_overflow, SQLSTATE 22008)"},
+    {"policy": "allow", "sqlstate": "42704", "message": "unrecognized configuration parameter \"a@b.io Ana\"", "output": "undefined_object, SQLSTATE 42704 (error details hidden because an allow list is active)"},
+    {"policy": "allow", "sqlstate": "22008", "message": "date field value out of range: 2020-01-54321", "output": "datetime_field_overflow, SQLSTATE 22008 (error details hidden because an allow list is active)"},
+    {"policy": "allow", "sqlstate": null, "message": "boom", "output": "unknown condition (error details hidden because an allow list is active)"}
+  ],
   "keep": [
     "Alice Johnson",
     "2026-11-03",

@@ -68,8 +68,8 @@ const connectionInputSchema = z
     default: z.boolean().optional(),
     /** Override REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS for this connection. */
     redactPii: z.boolean().optional(),
-    redactColumns: z.union([z.string(), z.array(z.string())]).optional(),
-    allowedColumns: z.union([z.string(), z.array(z.string())]).optional(),
+    redactColumns: z.union([z.string(), z.array(z.string())]).nullable().optional(),
+    allowedColumns: z.union([z.string(), z.array(z.string())]).nullable().optional(),
   })
   .refine((c) => c.url !== undefined || (c.user !== undefined && c.database !== undefined), {
     message: 'each connection needs either "url" or both "user" and "database"',
@@ -176,11 +176,24 @@ function fromUrl(alias: string, url: string) {
   };
 }
 
+/**
+ * A boolean variable, read the way the Python implementation (pydantic) reads
+ * it. Anything unrecognised is an error rather than a silent "false": for a
+ * protection flag, REDACT_PII=1 meaning "off" would fail open.
+ */
+function parseBoolean(value: string | undefined, name: string): boolean {
+  if (value === undefined) return false;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'on', 't', 'true', 'y', 'yes'].includes(normalized)) return true;
+  if (['0', 'off', 'f', 'false', 'n', 'no'].includes(normalized)) return false;
+  throw new Error(`${name} must be true or false, got "${value}"`);
+}
+
 /** Redaction defaults from REDACT_PII, REDACT_COLUMNS and ALLOWED_COLUMNS. */
 function globalRedaction(): RedactionPolicy {
   try {
     return {
-      pii: process.env.REDACT_PII === 'true',
+      pii: parseBoolean(process.env.REDACT_PII, 'REDACT_PII'),
       columns: parseColumnRules(process.env.REDACT_COLUMNS, 'REDACT_COLUMNS'),
       allowed: parseColumnRules(process.env.ALLOWED_COLUMNS, 'ALLOWED_COLUMNS'),
     };
@@ -294,7 +307,7 @@ function connectionsFromJson(raw: string, defaultAllowWrite: boolean): Connectio
 
 /** A connection's redaction policy: its own fields win over the defaults. */
 function redactionFor(
-  entry: { alias: string; redactPii?: boolean; redactColumns?: string | string[]; allowedColumns?: string | string[] },
+  entry: { alias: string; redactPii?: boolean; redactColumns?: string | string[] | null; allowedColumns?: string | string[] | null },
   defaults: RedactionPolicy
 ): RedactionPolicy {
   try {

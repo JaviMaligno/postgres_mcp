@@ -15,7 +15,7 @@ import {
   NO_REDACTION,
   columnsToMask,
   parseColumnRules,
-  redactErrorMessage,
+  redactError,
   redactRows,
   redactText,
   redactValue,
@@ -32,6 +32,7 @@ const vectors = JSON.parse(
 ) as {
   detect: Array<{ input: string; output: string; counts: Counts }>;
   keep: string[];
+  errors: Array<{ policy: string; sqlstate: string | null; message: string; output: string }>;
 };
 
 const policy = (overrides: Partial<RedactionPolicy>): RedactionPolicy => ({
@@ -245,46 +246,46 @@ describe('redactRows', () => {
 });
 
 describe('error messages', () => {
-  const p = policy({ columns: ['email'] });
+  const POLICIES: Record<string, RedactionPolicy> = {
+    none: NO_REDACTION,
+    deny: policy({ columns: ['email'] }),
+    pii: policy({ pii: true }),
+    allow: policy({ allowed: ['customers.id'] }),
+  };
 
-  it('strips unique-violation details', () => {
-    expect(redactErrorMessage('DETAIL:  Key (email)=(ana@corp.es) already exists.', p)).toBe(
-      'DETAIL:  Key (email)=([REDACTED]) already exists.'
-    );
+  it.each(vectors.errors.map((c) => [c.message.slice(0, 40), c] as const))(
+    'shared vector: %s',
+    (_label, c) => {
+      expect(redactError(c.message, POLICIES[c.policy], c.sqlstate ?? undefined)).toBe(c.output);
+    }
+  );
+});
+
+describe('review regressions', () => {
+  it('scans JSON keys', () => {
+    const counts: Counts = {};
+    expect(redactValue({ 'ana@corp.es': 'owner' }, counts)).toEqual({
+      '[REDACTED:email]': 'owner',
+    });
+    expect(counts).toEqual({ email: 1 });
   });
 
-  it('handles values containing parentheses', () => {
-    expect(
-      redactErrorMessage('DETAIL:  Key (name, phone)=(Ana (work), 600) already exists.', p)
-    ).toBe('DETAIL:  Key (name, phone)=([REDACTED]) already exists.');
+  it('does not accept a trailing newline in a column name', () => {
+    expect(ruleMatches('id', 'id\n', null)).toBe(false);
   });
 
-  it('strips failing rows', () => {
-    expect(
-      redactErrorMessage('DETAIL:  Failing row contains (7, ana@corp.es, null).', p)
-    ).toBe('DETAIL:  Failing row contains ([REDACTED]).');
-  });
-
-  it('strips invalid-input values', () => {
-    expect(redactErrorMessage('invalid input syntax for type integer: "ana@corp.es"', p)).toBe(
-      'invalid input syntax for type integer: "[REDACTED]"'
-    );
-  });
-
-  it('scans the rest when detection is on', () => {
-    expect(redactErrorMessage('something mentioned ana@corp.es', policy({ pii: true }))).toBe(
-      'something mentioned [REDACTED:email]'
-    );
-  });
-
-  it('leaves messages alone when disabled, and identifiers always', () => {
-    const detail = 'DETAIL:  Key (email)=(ana@corp.es) already exists.';
-    expect(redactErrorMessage(detail, NO_REDACTION)).toBe(detail);
-    expect(redactErrorMessage('relation "customers" does not exist', p)).toBe(
-      'relation "customers" does not exist'
+  it('masks a duplicated result name if any column carrying it must be', () => {
+    const columns: ColumnMeta[] = [
+      { name: 'id', source: ['public', 'customers', 'id'] },
+      { name: 'id', source: ['public', 'customers', 'email'] },
+    ];
+    expect(Object.fromEntries(columnsToMask(columns, policy({ allowed: ['customers.id'] })))).toEqual(
+      { id: '[REDACTED:not_allowed]' }
     );
   });
 });
+
+
 
 describe('configuration', () => {
   const KEYS = [
@@ -371,5 +372,30 @@ describe('configuration', () => {
   it('rejects an invalid global rule', () => {
     process.env.REDACT_COLUMNS = 'a.b.c.d';
     expect(() => resolveAlias()).toThrow(/REDACT_COLUMNS/);
+  });
+
+  // Same values pydantic accepts on the Python side; anything else is an error
+  // rather than a silent "off", which would fail open.
+  it.each(['1', 'on', 't', 'TRUE', 'y', 'Yes'])('reads REDACT_PII=%s as on', (value) => {
+    process.env.REDACT_PII = value;
+    expect(resolveAlias().redaction.pii).toBe(true);
+  });
+
+  it.each(['0', 'off', 'f', 'false', 'n', 'NO'])('reads REDACT_PII=%s as off', (value) => {
+    process.env.REDACT_PII = value;
+    expect(resolveAlias().redaction.pii).toBe(false);
+  });
+
+  it.each(['', 'maybe'])('rejects REDACT_PII=%j', (value) => {
+    process.env.REDACT_PII = value;
+    expect(() => resolveAlias()).toThrow(/REDACT_PII/);
+  });
+
+  it('lets a connection clear the global rules with null', () => {
+    process.env.REDACT_COLUMNS = 'email';
+    process.env.POSTGRES_CONNECTIONS = JSON.stringify([
+      { alias: 'x', url: 'postgresql://u:p@h/d', redactColumns: null },
+    ]);
+    expect(resolveAlias('x').redaction.columns).toEqual([]);
   });
 });

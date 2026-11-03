@@ -129,9 +129,21 @@ question about which one won.
 By default rows are returned as they are stored. Three optional layers keep
 personal data from reaching the model. All of them run inside the server,
 after the query and before the result is sent, so the model never sees the
-masked values. Values PostgreSQL repeats in error messages
-(`Key (email)=(…) already exists`, `invalid input syntax …: "…"`) are stripped
-as well.
+masked values.
+
+When any layer is active:
+
+- **Errors** are reduced, because PostgreSQL repeats values in them
+  (`invalid input syntax …: "<value>"`, and `current_setting(col)` can dump a
+  whole column into one). With an allow list an error names only its condition,
+  e.g. `undefined_column, SQLSTATE 42703`. Otherwise it keeps its first line,
+  with every quoted string masked.
+- **`query` and `explain_query` run in a `READ ONLY` transaction**, so a query
+  cannot create a temporary table that shadows an allowed one. Functions that
+  write, such as `nextval()`, fail in `query` while redaction is on. With
+  nothing configured, nothing changes.
+- **If redaction fails**, the result is withheld instead of being sent
+  unredacted.
 
 | Layer | Setting | What it does |
 |-------|---------|--------------|
@@ -158,8 +170,13 @@ were masked on purpose. Every layer can be set per connection with
 `redactPii`, `redactColumns` and `allowedColumns` in `POSTGRES_CONNECTIONS`,
 which replace the global value for that connection.
 
+Prefer `schema.table.column` rules in an allow list: `customers.id` matches a
+`customers` table in any schema.
+
 **Which one to use.** The allow list is the strictest option this server
-offers. Detection is a safety net for free text, where a column name tells you
+offers, on a connection without `allowWrite` (with writes allowed, a query can
+copy a hidden value into an allowed column first). Detection only recognises
+ASCII digits. Detection is a safety net for free text, where a column name tells you
 nothing. The deny list guards against accidents, not against a query written to
 get around it. No output filter stops a query from *using* a hidden column
 (`WHERE email LIKE 'a%'` still answers through the row count). When that
