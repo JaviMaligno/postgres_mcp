@@ -27,7 +27,11 @@
     "SELECT 'abc",
     "SELECT \"abc",
     "SELECT $q$ unterminated",
-    "SELECT a$b$ FROM t; UPDATE t SET a = 1; SELECT $b$"
+    "SELECT a$b$ FROM t; UPDATE t SET a = 1; SELECT $b$",
+    "COMMENT ON TABLE t IS 'x'",
+    "REFRESH MATERIALIZED VIEW mv",
+    "ANALYZE t",
+    "PREPARE p AS SELECT 1"
   ],
   "allow": [
     "SELECT * FROM customers",

@@ -33,10 +33,11 @@ WRITE_KEYWORDS = frozenset(
     ]
 )
 
-# Statements that can write and only appear at the start of a query. Matching
-# them anywhere would reject text such as 'to do'. DO runs arbitrary code
-# (EXECUTE 'UPD' || 'ATE ...' gets past any keyword list), CALL a procedure.
-WRITE_STATEMENTS = ("DO", "CALL")
+# In read-only mode a query must start with one of these, as in TypeScript.
+# A deny list of statements cannot keep up: DO and CALL run arbitrary code,
+# and COMMENT ON, REFRESH MATERIALIZED VIEW or ANALYZE write without any of
+# the words above.
+READ_ONLY_STARTS = ("SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "SET")
 
 # Keywords that are always dangerous and should never be allowed
 DANGEROUS_KEYWORDS = frozenset(
@@ -183,16 +184,19 @@ def validate_query(
 
     # Check for write operations if not allowed
     if not allow_write:
-        first_word = re.match(r"[A-Z]+", query_upper)
-        if first_word and first_word.group(0) in WRITE_STATEMENTS:
+        # Prefix match, exactly like the TypeScript validator.
+        if not query_upper.startswith(READ_ONLY_STARTS):
             raise SQLValidationError(
-                f"Write operation '{first_word.group(0)}' is not allowed in "
-                "read-only mode. Use the 'execute' tool for write operations."
+                "Write operation is not allowed in read-only mode: a query must "
+                f"start with one of {', '.join(READ_ONLY_STARTS)}. "
+                "Use the 'execute' tool for write operations."
             )
         for keyword in WRITE_KEYWORDS:
             # Use word boundary to avoid false positives (e.g., "UPDATED_AT" column)
+            # ASCII word boundaries, as in JavaScript: with Unicode ones "éUPDATE"
+            # would pass here and fail there.
             pattern = rf"\b{keyword}\b"
-            if re.search(pattern, sql_only.upper()):
+            if re.search(pattern, sql_only.upper(), re.ASCII):
                 raise SQLValidationError(
                     f"Write operation '{keyword}' is not allowed in read-only mode. "
                     "Use the 'execute' tool for write operations."
