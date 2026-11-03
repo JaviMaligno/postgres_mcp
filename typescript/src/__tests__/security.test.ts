@@ -16,7 +16,16 @@ const vectors = JSON.parse(
   readFileSync(resolve(here, '../../../testdata/readonly_vectors.json'), 'utf-8')
 ) as { reject: string[]; allow: string[] };
 
+const fuzz = JSON.parse(
+  readFileSync(resolve(here, '../../../testdata/readonly_fuzz.json'), 'utf-8')
+) as { accepted: string[]; rejected: string[] };
+
 describe('read-only validation', () => {
+  it('reaches the same verdicts as Python on 1,015 generated queries', () => {
+    for (const query of fuzz.accepted) expect(() => validateQuery(query, false)).not.toThrow();
+    for (const query of fuzz.rejected) expect(() => validateQuery(query, false)).toThrow();
+  });
+
   it.each(vectors.reject)('rejects %s', (query) => {
     expect(() => validateQuery(query, false)).toThrow();
   });

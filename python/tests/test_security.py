@@ -205,3 +205,21 @@ def test_shared_read_only_rejections(query):
 @pytest.mark.parametrize("query", _READONLY["allow"])
 def test_shared_read_only_allowances(query):
     assert validate_query(query, allow_write=False) == query.strip()
+
+
+_FUZZ = __import__("json").loads(
+    (
+        __import__("pathlib").Path(__file__).resolve().parents[2]
+        / "testdata"
+        / "readonly_fuzz.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+def test_fuzz_corpus_verdicts():
+    """Same verdicts as the TypeScript validator on 1,015 generated queries."""
+    for query in _FUZZ["accepted"]:
+        validate_query(query, allow_write=False)
+    for query in _FUZZ["rejected"]:
+        with pytest.raises(SQLValidationError):
+            validate_query(query, allow_write=False)
