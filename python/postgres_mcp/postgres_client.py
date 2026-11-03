@@ -22,6 +22,7 @@ from postgres_mcp.settings import (
 from postgres_mcp.security import (
     validate_query,
 )
+from postgres_mcp.redaction import redact_error_message, redact_rows
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +61,13 @@ class PostgresClient:
                 sslmode=settings.postgres_sslmode,
                 allow_write=settings.allow_write_operations,
                 is_default=True,
+                redaction=settings.redaction_policy(),
             )
         else:
             self.connection = resolve_connection(alias)
         self.alias = self.connection.alias
         self.allow_write = self.connection.allow_write
+        self.redaction = self.connection.redaction
         self._connection: Optional[psycopg2.extensions.connection] = None
 
     @contextmanager
@@ -145,19 +148,23 @@ class PostgresClient:
                     if truncated:
                         rows = rows[:max_rows]
 
-                    columns = (
-                        [desc[0] for desc in cursor.description]
-                        if cursor.description
-                        else []
-                    )
+                    description = cursor.description or []
+                    columns = [desc[0] for desc in description]
+                    result_rows = [dict(row) for row in rows]
 
-                    return {
+                    response = {
                         "success": True,
-                        "rows": [dict(row) for row in rows],
+                        "rows": result_rows,
                         "row_count": len(rows),
                         "columns": columns,
                         "truncated": truncated,
                     }
+                    if self.redaction.enabled:
+                        meta = self._column_sources(cursor, description)
+                        response["rows"], response["redacted"] = redact_rows(
+                            result_rows, meta, self.redaction
+                        )
+                    return response
                 else:
                     conn.commit()
                     return {
@@ -169,9 +176,62 @@ class PostgresClient:
                     }
             except psycopg2.Error as e:
                 conn.rollback()
-                raise PostgresClientError(f"Query failed: {e}") from e
+                message = redact_error_message(str(e), self.redaction)
+                raise PostgresClientError(f"Query failed: {message}") from e
             finally:
                 cursor.close()
+
+    def _column_sources(self, cursor, description) -> list[dict[str, Any]]:
+        """Resolve each result column to the table column it was read from.
+
+        PostgreSQL reports a table OID and attribute number per result column
+        when the value is a plain column reference (also through aliases,
+        subqueries, CTEs and joins); expressions, aggregates and UNIONs report
+        none. Attribute number 0 is a whole-row reference.
+        """
+        base = [
+            {
+                "name": desc[0],
+                "oid": getattr(desc, "table_oid", None),
+                "attnum": getattr(desc, "table_column", None),
+            }
+            for desc in description
+        ]
+        oids = sorted({c["oid"] for c in base if c["oid"]})
+        catalog: dict[int, dict[int, tuple[str, str, str]]] = {}
+        if oids and self.redaction.needs_sources:
+            cursor.execute(
+                """
+                SELECT a.attrelid::bigint AS oid, a.attnum, n.nspname, c.relname,
+                       a.attname
+                FROM pg_attribute a
+                JOIN pg_class c ON c.oid = a.attrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE a.attrelid = ANY(%s::oid[]) AND a.attnum > 0
+                  AND NOT a.attisdropped
+                """,
+                (oids,),
+            )
+            for row in cursor.fetchall():
+                catalog.setdefault(row["oid"], {})[row["attnum"]] = (
+                    row["nspname"],
+                    row["relname"],
+                    row["attname"],
+                )
+        meta = []
+        for column in base:
+            table = catalog.get(column["oid"] or 0, {})
+            attnum = column["attnum"] or 0
+            meta.append(
+                {
+                    "name": column["name"],
+                    "source": table.get(attnum) if attnum > 0 else None,
+                    "row_of": list(table.values())
+                    if column["oid"] and attnum == 0
+                    else None,
+                }
+            )
+        return meta
 
     def explain_query(self, query: str, analyze: bool = False) -> dict[str, Any]:
         """Get EXPLAIN plan for a query.
@@ -192,7 +252,14 @@ class PostgresClient:
         explain_cmd += f") {validated_query}"
 
         with self.get_cursor() as cursor:
-            cursor.execute(explain_cmd)
+            try:
+                cursor.execute(explain_cmd)
+            except psycopg2.Error as e:
+                # EXPLAIN ANALYZE runs the query, so its errors can echo values.
+                if not self.redaction.enabled:
+                    raise
+                message = redact_error_message(str(e), self.redaction)
+                raise PostgresClientError(f"Query failed: {message}") from e
             result = cursor.fetchone()
 
             if result:
