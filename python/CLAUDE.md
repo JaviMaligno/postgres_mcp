@@ -130,8 +130,13 @@ For integration tests, a PostgreSQL database is required. CI uses GitHub Actions
 
 ## Release Process
 
-1. Update version in `postgres_mcp/__version__.py`
-2. Commit and push to main
-3. Create and push tag: `git tag v0.x.x && git push origin v0.x.x`
-4. GitHub Actions will run tests and publish to PyPI
+1. Bump the version everywhere `tests/test_release_metadata.py` checks:
+   `postgres_mcp/__version__.py`, `pyproject.toml` (and the `postgresql-mcp`
+   entry in `uv.lock`), `typescript/package.json` (and its lock),
+   `typescript/src/server.ts` and the three versions in `server.json`
+2. Merge to main through a PR
+3. Create and push the tag: `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`
+4. `.github/workflows/publish.yml` runs the tests, then publishes to PyPI and
+   to npm, both through trusted publishing (OIDC): no tokens, no manual login.
+   The npm trust relationship names `publish.yml` and the `npm` environment.
 

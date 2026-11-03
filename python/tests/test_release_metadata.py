@@ -75,3 +75,20 @@ def test_publish_workflow_runs_database_tests_and_validates_manifest():
     # --run-integration is worthless without the fixtures those tests query:
     # the first tagged release failed here because the schema was never seeded.
     assert "scripts/init_sample_db.sql" in workflow
+
+
+def test_publish_workflow_releases_npm_through_trusted_publishing():
+    workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(
+        encoding="utf-8"
+    )
+    npm_job = workflow.split("  publish-npm:", 1)[1]
+
+    # The npm trust relationship names publish.yml and the "npm" environment.
+    assert "environment: npm" in npm_job
+    assert "id-token: write" in npm_job
+    assert "needs: test" in npm_job
+    assert "npm publish" in npm_job
+    assert "npm ci --ignore-scripts" in npm_job
+    # OIDC, not a stored token.
+    assert "NPM_TOKEN" not in workflow
+    assert "NODE_AUTH_TOKEN" not in workflow
