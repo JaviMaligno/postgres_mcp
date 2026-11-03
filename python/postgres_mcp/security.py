@@ -27,8 +27,16 @@ WRITE_KEYWORDS = frozenset(
         "VACUUM",
         "REINDEX",
         "CLUSTER",
+        # MERGE writes and was missing; INTO covers SELECT ... INTO new_table.
+        "MERGE",
+        "INTO",
     ]
 )
+
+# Statements that can write and only appear at the start of a query. Matching
+# them anywhere would reject text such as 'to do'. DO runs arbitrary code
+# (EXECUTE 'UPD' || 'ATE ...' gets past any keyword list), CALL a procedure.
+WRITE_STATEMENTS = ("DO", "CALL")
 
 # Keywords that are always dangerous and should never be allowed
 DANGEROUS_KEYWORDS = frozenset(
@@ -52,6 +60,74 @@ class SQLValidationError(Exception):
     """Raised when SQL validation fails."""
 
     pass
+
+
+_IDENT_CHAR = re.compile(r"[A-Za-z0-9_$]")
+_DOLLAR_TAG = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
+
+
+def strip_literals(query: str) -> str:
+    """Replace string literals and quoted identifiers with empty ones.
+
+    Keyword checks then look at SQL only: WHERE action = 'UPDATE' is a read.
+    The scan errs towards seeing *more* SQL than PostgreSQL does, never less:
+    a plain '...' treats backslashes as ordinary characters (PostgreSQL's
+    default; with standard_conforming_strings off the server would extend
+    the string further, which only hides less), and an unterminated literal
+    is rejected. Mirrored in typescript/src/security.ts.
+    """
+    out = []
+    i, n = 0, len(query)
+    while i < n:
+        char = query[i]
+        prev_is_ident = i > 0 and bool(_IDENT_CHAR.match(query[i - 1]))
+        if char == "'":
+            # E'...' (not part of a longer word) is the only form where a
+            # backslash escapes the next character.
+            escapes = (
+                i > 0
+                and query[i - 1] in "Ee"
+                and not (i > 1 and _IDENT_CHAR.match(query[i - 2]))
+            )
+            j = i + 1
+            while True:
+                if j >= n:
+                    raise SQLValidationError("Unterminated string literal")
+                if escapes and query[j] == "\\":
+                    j += 2
+                    continue
+                if query[j] == "'":
+                    if j + 1 < n and query[j + 1] == "'":
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append("''")
+            i = j + 1
+        elif char == '"':
+            j = i + 1
+            while True:
+                if j >= n:
+                    raise SQLValidationError("Unterminated quoted identifier")
+                if query[j] == '"':
+                    if j + 1 < n and query[j + 1] == '"':
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append('""')
+            i = j + 1
+        elif char == "$" and not prev_is_ident and _DOLLAR_TAG.match(query, i):
+            tag = _DOLLAR_TAG.match(query, i).group(0)
+            end = query.find(tag, i + len(tag))
+            if end < 0:
+                raise SQLValidationError("Unterminated dollar-quoted string")
+            out.append("''")
+            i = end + len(tag)
+        else:
+            out.append(char)
+            i += 1
+    return "".join(out)
 
 
 def validate_query(
@@ -96,18 +172,27 @@ def validate_query(
         if dangerous in query_upper:
             raise SQLValidationError(f"Operation '{dangerous}' is not allowed")
 
+    # The statement and keyword checks look at SQL only, not at the contents of
+    # literals: WHERE action = 'UPDATE' or LIKE '%;%' is a read.
+    sql_only = strip_literals(query)
+
     # Check for multiple statements (prevent SQL injection via statement chaining)
     # Remove the trailing semicolon if present, then check for others
-    query_without_trailing = query.rstrip(";").strip()
-    if ";" in query_without_trailing:
+    if ";" in re.sub(r"[;\s]+$", "", sql_only):
         raise SQLValidationError("Multiple SQL statements are not allowed")
 
     # Check for write operations if not allowed
     if not allow_write:
+        first_word = re.match(r"[A-Z]+", query_upper)
+        if first_word and first_word.group(0) in WRITE_STATEMENTS:
+            raise SQLValidationError(
+                f"Write operation '{first_word.group(0)}' is not allowed in "
+                "read-only mode. Use the 'execute' tool for write operations."
+            )
         for keyword in WRITE_KEYWORDS:
             # Use word boundary to avoid false positives (e.g., "UPDATED_AT" column)
             pattern = rf"\b{keyword}\b"
-            if re.search(pattern, query_upper):
+            if re.search(pattern, sql_only.upper()):
                 raise SQLValidationError(
                     f"Write operation '{keyword}' is not allowed in read-only mode. "
                     "Use the 'execute' tool for write operations."

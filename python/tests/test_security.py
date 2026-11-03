@@ -183,3 +183,25 @@ class TestSanitizeLimit:
         """Non-integer should use default."""
         assert sanitize_limit("10", default=50) == 50  # type: ignore
         assert sanitize_limit(None, default=50) == 50  # type: ignore
+
+
+# Shared with typescript/src/__tests__/security.test.ts so both servers draw
+# the read-only line in the same place.
+_READONLY = __import__("json").loads(
+    (
+        __import__("pathlib").Path(__file__).resolve().parents[2]
+        / "testdata"
+        / "readonly_vectors.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize("query", _READONLY["reject"])
+def test_shared_read_only_rejections(query):
+    with pytest.raises(SQLValidationError):
+        validate_query(query, allow_write=False)
+
+
+@pytest.mark.parametrize("query", _READONLY["allow"])
+def test_shared_read_only_allowances(query):
+    assert validate_query(query, allow_write=False) == query.strip()
