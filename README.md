@@ -313,6 +313,12 @@ This MCP server implements multiple security layers:
 
 ### Read-Only by Default
 Write operations (INSERT, UPDATE, DELETE) are blocked unless explicitly enabled via `ALLOW_WRITE_OPERATIONS=true`.
+The check covers the whole statement, not only its first word: data-modifying CTEs
+(`WITH u AS (UPDATE …) SELECT …`), `SELECT … INTO`, `MERGE`, `DO` and `CALL` are refused, and so
+is more than one statement per call. Words inside string literals don't count, so
+`WHERE action = 'UPDATE'` is still a read. This is a keyword check: a function that writes
+when called from a `SELECT` is outside its reach. For a hard guarantee, connect with a role
+that only has read privileges.
 
 ### SQL Injection Prevention
 - All queries are validated before execution

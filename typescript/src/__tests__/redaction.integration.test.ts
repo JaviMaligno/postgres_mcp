@@ -313,7 +313,7 @@ describe.skipIf(!hasDatabase)('review regressions against a live server', () => 
     configure({ ALLOWED_COLUMNS: 'support_tickets.id' });
     expect(
       await errorOf('SELECT notes AS id INTO TEMP support_tickets FROM public.support_tickets')
-    ).toContain('read_only_sql_transaction');
+    ).toMatch(/read_only_sql_transaction|is not allowed/); // validator or READ ONLY, whichever stops it first
     const ids = (await run('SELECT id FROM support_tickets ORDER BY id')).rows.map((r) => r.id);
     expect(ids).toEqual([1, 2]);
   });
@@ -322,7 +322,7 @@ describe.skipIf(!hasDatabase)('review regressions against a live server', () => 
     configure({ REDACT_PII: 'true' });
     expect(
       await errorOf('WITH u AS (UPDATE support_tickets SET subject = subject RETURNING 1) SELECT 1')
-    ).toContain('read_only_sql_transaction');
+    ).toMatch(/read_only_sql_transaction|is not allowed/);
   });
 
   it('keeps multiple statements from leaving the read-only transaction', async () => {

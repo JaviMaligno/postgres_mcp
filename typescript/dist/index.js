@@ -838,20 +838,107 @@ var DANGEROUS_PATTERNS = [
   /execute\s*\(/i
 ];
 var WRITE_KEYWORDS = ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "DROP", "ALTER", "CREATE", "GRANT", "REVOKE"];
+var READ_ONLY_FORBIDDEN_WORDS = [
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "DROP",
+  "CREATE",
+  "ALTER",
+  "TRUNCATE",
+  "GRANT",
+  "REVOKE",
+  "COPY",
+  "LOCK",
+  "VACUUM",
+  "REINDEX",
+  "CLUSTER",
+  "MERGE",
+  "INTO"
+];
+var IDENT_CHAR = /[A-Za-z0-9_$]/;
+var DOLLAR_TAG = /\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/y;
+function stripLiterals(query) {
+  let out = "";
+  let i = 0;
+  const n = query.length;
+  while (i < n) {
+    const char = query[i];
+    const prevIsIdent = i > 0 && IDENT_CHAR.test(query[i - 1]);
+    if (char === "'") {
+      const escapes = i > 0 && (query[i - 1] === "E" || query[i - 1] === "e") && !(i > 1 && IDENT_CHAR.test(query[i - 2]));
+      let j = i + 1;
+      for (; ; ) {
+        if (j >= n) throw new SQLValidationError("Unterminated string literal");
+        if (escapes && query[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (query[j] === "'") {
+          if (j + 1 < n && query[j + 1] === "'") {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j += 1;
+      }
+      out += "''";
+      i = j + 1;
+    } else if (char === '"') {
+      let j = i + 1;
+      for (; ; ) {
+        if (j >= n) throw new SQLValidationError("Unterminated quoted identifier");
+        if (query[j] === '"') {
+          if (j + 1 < n && query[j + 1] === '"') {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j += 1;
+      }
+      out += '""';
+      i = j + 1;
+    } else if (char === "$" && !prevIsIdent) {
+      DOLLAR_TAG.lastIndex = i;
+      const opener = DOLLAR_TAG.exec(query);
+      if (!opener) {
+        out += char;
+        i += 1;
+        continue;
+      }
+      const tag = opener[0];
+      const end = query.indexOf(tag, i + tag.length);
+      if (end < 0) throw new SQLValidationError("Unterminated dollar-quoted string");
+      out += "''";
+      i = end + tag.length;
+    } else {
+      out += char;
+      i += 1;
+    }
+  }
+  return out;
+}
 function validateQuery(query, allowWrite = false) {
   if (!query || typeof query !== "string") {
     throw new SQLValidationError("Query must be a non-empty string");
   }
   const trimmedQuery = query.trim();
   for (const pattern of DANGEROUS_PATTERNS) {
+    pattern.lastIndex = 0;
     if (pattern.test(trimmedQuery)) {
       throw new SQLValidationError("Query contains potentially dangerous patterns");
     }
   }
+  const sqlOnly = stripLiterals(trimmedQuery);
+  if (sqlOnly.replace(/[;\s]+$/, "").includes(";")) {
+    throw new SQLValidationError("Multiple SQL statements are not allowed");
+  }
   if (!allowWrite) {
-    const upperQuery = trimmedQuery.toUpperCase();
-    for (const keyword of WRITE_KEYWORDS) {
-      if (upperQuery.startsWith(keyword) || new RegExp(`^\\s*${keyword}\\s`, "i").test(trimmedQuery)) {
+    const upperQuery = sqlOnly.toUpperCase();
+    for (const keyword of READ_ONLY_FORBIDDEN_WORDS) {
+      if (new RegExp(`\\b${keyword}\\b`).test(upperQuery)) {
         throw new SQLValidationError(
           `Write operation '${keyword}' is not allowed. Set ALLOW_WRITE_OPERATIONS=true to enable.`
         );
@@ -2121,7 +2208,7 @@ Format as markdown suitable for technical documentation.`;
 }
 
 // src/server.ts
-var VERSION = "1.2.0";
+var VERSION = "1.2.1";
 function createServer() {
   const server = new Server(
     {
