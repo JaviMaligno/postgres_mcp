@@ -314,7 +314,11 @@ class TestReadOnlyUnderRedaction:
             "SELECT notes AS id INTO TEMP support_tickets FROM public.support_tickets"
         )
         assert "error" in created
-        assert "read_only_sql_transaction" in created["error"]
+        # Stopped by the validator (INTO) or by the READ ONLY transaction.
+        assert any(
+            reason in created["error"]
+            for reason in ("read_only_sql_transaction", "is not allowed")
+        )
         ids = [
             row["id"]
             for row in run("SELECT id FROM support_tickets ORDER BY id")["rows"]
